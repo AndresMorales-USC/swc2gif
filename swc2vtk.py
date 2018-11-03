@@ -4,8 +4,9 @@ Created on 2018/05/22
 
 @author: Andres Morales
 
-main(swc_file_path(s), [data_file_path(s)], [coordinate_file_path(s)],
-    [save_path=swc_path, vtkname='model.vtk', datatitle='vdata',
+
+main(swc_path_file(s), [data_path_file(s)], [coordinate_path_file(s)],
+    [save_path=swc_path, vtk_name='model.vtk', datatitle='vdata',
     datadelimiter=' ', coordsdelimiter='	', maxframes=float('Inf')])
 
 returns number of vtk's saved and the min and max data values of all
@@ -13,7 +14,7 @@ returns number of vtk's saved and the min and max data values of all
 
 
 Required Argument:
-swc_file_path(s): A string containing the file path and file name,
+swc_path_file(s): A string containing the file path and file name,
     or tuple/list of strings containing the file paths and file names,
     of the ".swc" file(s).
     (Example 0: 'C:\\Retina simulation\\morphology\\606.swc'
@@ -24,7 +25,7 @@ swc_file_path(s): A string containing the file path and file name,
 
 
 Optional Arguments:
-data_file_path(s): A string containing the file path and file name,
+data_path_file(s): A string containing the file path and file name,
     or tuple/list of strings containing the file paths and file names,
     of the ".txt" data file(s). Each data file is information to be
     mapped to a specific swc (swc & data file lists must be of equal
@@ -34,7 +35,7 @@ data_file_path(s): A string containing the file path and file name,
                   'C:\\Retina simulation\\morphology\\1010_data.txt']
      Example 1b: 'C:\\Retina simulation\\morphology\\voltage_data.txt')
 
-coordinate_file_path(s): A string containing the file path and file
+coordinate_path_file(s): A string containing the file path and file
     name of the ".txt" coordinate file.
     (Example 1b: 'C:\\Retina simulation\\morphology\\coords_data.txt')
 
@@ -45,8 +46,8 @@ save_path: A string containing the file path of where to save generated
     the same folder as where the ".swc" files are read.
     (Example: 'C:\\Retina simulation\\outputs')
 
-vtkname: A string containing the file name of the ".vtk" file to be
-    generated. vtkname, if not given, is set to 'model.vtk'.
+vtk_name: A string containing the file name of the ".vtk" file to be
+    generated. vtk_name, if not given, is set to 'model.vtk'.
 
 datatitle: A string containing the name to label data within the ".vtk"
     file. It defaults to 'vdata'.
@@ -64,9 +65,14 @@ maxframes=float('Inf'): An integer for the maximum number of frames to
     the prefix '_' and a number (starting at 0). The default value is
     actually a float for infinity.
 
+
+Prerequisite Packages:
+Install tqdm and scypi
+pip install tqdm scypi
+
 """
 
-import gifgen.vtkgen as vtkgen
+import swc2gif.vtkgen as vtkgen
 import os
 
 def main(*args, **kwargs):
@@ -81,7 +87,7 @@ def main(*args, **kwargs):
         print('ERROR: Not enough arguments [minimum: list of swc''s]')
     else: # SWC arguments are contained in args
         # Place file path strings into a list from whatever format it was submitted
-        if isinstance(args[0], basestring):
+        if isinstance(args[0], str):
             swc_list = [args[0]]
         elif isinstance(args[0], tuple):
             swc_list = list(args[0])
@@ -90,9 +96,15 @@ def main(*args, **kwargs):
         else:
             print('Warning: Unknown input for swc file(s)')
         
+        # Check if all SWC's have swc as file types
+        if not checktype(swc_list, 'swc'):
+            print('Warning: One or more SWC\'s do NOT have a \'.swc\' file type')
+        
         data_file_list = []
+        coords_path_file = ''
+        
         if len(args) > 1: # Data arguments are contained in args
-            if isinstance(args[1], basestring):
+            if isinstance(args[1], str):
                 data_file_list = [args[1]]
             elif isinstance(args[1], tuple):
                 data_file_list = list(args[1])
@@ -100,16 +112,31 @@ def main(*args, **kwargs):
                 data_file_list = args[1]
             else:
                 print('Warning: Unknown input for data file(s)')
+                
+            # Check if all data V's have v as file types
+            if not checktype(data_file_list, 'v'):
+                print('Warning: One or more data V\'s do NOT have a \'.v\' file type')
             
-        coords_file_path = ''
-        if len(args) > 2: # Coordinate argument is contained in args
-            if isinstance(args[2], basestring):
-                coords_file_path = args[2]
-            else:
-                print('Warning: Unknown input for coordinate file(s)')
             
-        if len(args) > 3: # Extra arguments are contained in args
-            print('Warning: Extra arguments recieved beyond SWC, Data, and Coordinate files')
+            if len(args) > 2: # Coordinate argument is contained in args
+                if isinstance(args[2], str):
+                    coords_path_file = args[2]
+                else:
+                    print('Warning: Unknown input for coordinate file')
+                
+                # Check if all coordinate TXT's have txt as file types
+                if not checktype([coords_path_file], 'txt'):
+                    print('Warning: One or more coordinate TXT\'s do NOT have a \'.txt\' file type')
+                    
+                
+                if len(args) > 3: # Extra arguments are contained in args
+                    print('Warning: Extra arguments recieved beyond SWC, Data, and Coordinate files')
+                
+            else: # Less than 3 arguments
+                print('No coordinate file. Assuming data is already aligned.')
+        else: # Less than 2 arguments
+            print('No data or cordinate files. Converting swc''s only.')
+                
     
     
     # Check if number of files for each type is consistent
@@ -117,7 +144,7 @@ def main(*args, **kwargs):
     # or one data file for each swc and no coordinate files
     
     # If coordinate TXT's are used, check if number is same as data V's
-    if len(coords_file_path) > 0 and len(data_file_list) != 1:
+    if len(coords_path_file) > 0 and len(data_file_list) != 1:
         print('Warning: Mismatch in number of data V and coordinate TXT files')
     
     # If data V's are used, check if number is appropriate for SWC's
@@ -126,17 +153,11 @@ def main(*args, **kwargs):
     
     
     # Check file types for all args
-    # Check if all SWC's have swc as file types
-    if not checktype(swc_list, 'swc'):
-        print('Warning: One or more SWC\'s do NOT have a \'.swc\' file type')
+
         
-    # Check if all data V's have v as file types
-    if not checktype(data_file_list, 'v'):
-        print('Warning: One or more data V\'s do NOT have a \'.v\' file type')
+
     
-    # Check if all coordinate TXT's have txt as file types
-    if not checktype([coords_file_path], 'txt'):
-        print('Warning: One or more coordinate TXT\'s do NOT have a \'.txt\' file type')
+
     
     
     # Check if keys are defined in kwargs
@@ -163,22 +184,26 @@ def main(*args, **kwargs):
     
     # Initialize VTK, add and convert SWC file(s)
     head, tail = os.path.split(swc_list[0])
-    vtk_file_path = head+'\\'+vtk_name
+    # If no save path was specified use the swc's path
+    if len(save_path) == 0:
+        vtk_path_file = os.path.join(head, vtk_name)
+    else:
+        vtk_path_file = os.path.join(save_path, vtk_name)
     vtk = vtkgen.VtkGenerator()
-    for swc_file_path in swc_list:
-        vtk.add_swc(swc_file_path)
+    for swc_path_file in swc_list:
+        vtk.add_swc(swc_path_file)
     #vtk.convert_swc()
     
     # Check if data needs to be converted
-    if len(coords_file_path) > 0:
+    if len(coords_path_file) > 0:
         # Convert all data using SWC's and coordinate TXT's
         from scipy import spatial
         from tqdm import tqdm
         
         # Extract data coordinates from coords file
-        tempHead, coords_file = os.path.split(coords_file_path)
+        tempHead, coords_file = os.path.split(coords_path_file)
         data_coords = []
-        with open(coords_file_path, 'r') as f:
+        with open(coords_path_file, 'r') as f:
             # Read each line of the file as a string, split into a list of strings, convert to a
             #     list of numbers, and finally append single postion list to list of all positions
             for line in f:
@@ -194,13 +219,13 @@ def main(*args, **kwargs):
         # Generate KDTree
         tree = spatial.cKDTree(data_coords)
         
-        data_file_path = data_file_list[0] # If coordinates need conversion then only one data file should be in list
+        data_path_file = data_file_list[0] # If coordinates need conversion then only one data file should be in list
         
         aligned_data_file_list = []
         timesteps=0
         # Loop through SWC files for conversion
-        for file_idx, swc_file_path in enumerate(tqdm(swc_list, desc='Aligning Data to SWC\'s')):
-            tempHead, swc_file = os.path.split(swc_file_path)
+        for file_idx, swc_path_file in enumerate(tqdm(swc_list, desc='Aligning Data to SWC\'s')):
+            tempHead, swc_file = os.path.split(swc_path_file)
             
             # Iterate through each swc compartment and generate reference list
             compartment_coords_idx = []
@@ -212,12 +237,12 @@ def main(*args, **kwargs):
             # Generate aligned data
             # If no save path was specified use the swc's path
             if len(save_path) == 0:
-                aligned_data_file_path = swc_file_path[:-4]+'_aligned_data.v'
+                aligned_data_path_file = swc_path_file[:-4]+'_aligned_data.v'
             else:
-                aligned_data_file_path = os.path.join(save_path, swc_file[:-4]+'_aligned_data.v')
-            with open(aligned_data_file_path, 'w') as adf:
+                aligned_data_path_file = os.path.join(save_path, swc_file[:-4]+'_aligned_data.v')
+            with open(aligned_data_path_file, 'w') as adf:
                 # Iterate through data file where each line is a different time step
-                with open(data_file_path, 'r') as df:
+                with open(data_path_file, 'r') as df:
                     # Loop through all time steps
                     linecount = 0
                     for line in tqdm(df, total=timesteps, desc='Generating Aligned Data for '+swc_file):
@@ -234,7 +259,7 @@ def main(*args, **kwargs):
                         linecount +=1
             
             # Append new data file to aligned_data_list
-            aligned_data_file_list.append(aligned_data_file_path)
+            aligned_data_file_list.append(aligned_data_path_file)
             timesteps = linecount
     else: # Data is already aligned
         aligned_data_file_list = data_file_list
@@ -242,17 +267,22 @@ def main(*args, **kwargs):
     # Check if data needs to be added
     if len(aligned_data_file_list) > 0:
         # Add all data to VTK and write it to the same folder as the first SWC
-        for data_file_path in aligned_data_file_list:
-            vtk.add_timeddatafile(data_file_path)
-        numvtks, minV, maxV = vtk.write_vtk(vtk_file_path, datatitle=datatitle, delimiter=datadelimiter, maxframes=maxframes)
+        for data_path_file in aligned_data_file_list:
+            vtk.add_timeddatafile(data_path_file)
+        numvtks, minV, maxV = vtk.write_vtk(vtk_path_file, datatitle=datatitle, delimiter=datadelimiter, maxframes=maxframes)
         
     else: # No data to add, just write the VTK to the same folder as the first SWC
-        numvtks, minV, maxV = vtk.write_vtk(vtk_file_path)
+        numvtks, minV, maxV = vtk.write_vtk(vtk_path_file)
     
+    # Save split data
     print('\nNumber of VTK''s: '+str(numvtks))
     print('Data Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
-    vtksplitdata_path = head+'\\'+vtk_name[:-4]+'_splitdata.txt'
-    with open(vtksplitdata_path, 'w') as f:
+    # If no save path was specified use the swc's path
+    if len(save_path) == 0:
+        vtksplitdata_path_file = os.path.join(head, vtk_name[:-4]+'_splitdata.txt')
+    else:
+        vtksplitdata_path_file = os.path.join(save_path, vtk_name[:-4]+'_splitdata.txt')
+    with open(vtksplitdata_path_file, 'w') as f:
         f.write('Number of VTK''s: '+str(numvtks)+'\n')
         f.write('Data Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
     return [numvtks, minV, maxV]
@@ -265,8 +295,8 @@ def checktype(file_list, file_type):
     # Returns true if all files in file_list are of type file_type
     file_type_check = True
     chars = len(file_type)
-    for file_path in file_list:
-        if file_path[-chars:] != file_type:
+    for path_file in file_list:
+        if path_file[-chars:] != file_type:
             file_type_check = False
             break
     return file_type_check
@@ -286,12 +316,12 @@ if __name__ == '__main__':
     swc_list = []
     loopExit = False
     while not loopExit:
-        swc_file_path = tkFileDialog.askopenfilename()
-        if swc_file_path == '':
+        swc_path_file = tkFileDialog.askopenfilename()
+        if swc_path_file == '':
             loopExit = True
         else:
-            swc_list.append(swc_file_path)
-            print('Opened: ' + swc_file_path)
+            swc_list.append(swc_path_file)
+            print('Opened: ' + swc_path_file)
             sys.stdout.flush()
 
     print('\nSelect data V file(s)')
@@ -301,17 +331,17 @@ if __name__ == '__main__':
     data_file_list = []
     loopExit = False
     while not loopExit:
-        data_file_path = tkFileDialog.askopenfilename()
-        if data_file_path == '':
+        data_path_file = tkFileDialog.askopenfilename()
+        if data_path_file == '':
             loopExit = True
         else:
-            data_file_list.append(data_file_path)
-            print('Opened: ' + data_file_path)
+            data_file_list.append(data_path_file)
+            print('Opened: ' + data_path_file)
             sys.stdout.flush()
     
     print('\nSelect coordinate TXT file')
     print('Select coordinate TXT to be opened')
     print('Or cancel before selecting first coordinate TXT if data is already aligned')
     sys.stdout.flush()
-    coords_file_path = tkFileDialog.askopenfilename()
-    main(swc_list, data_file_list, coords_file_path)
+    coords_path_file = tkFileDialog.askopenfilename()
+    main(swc_list, data_file_list, coords_path_file)

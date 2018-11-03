@@ -15,8 +15,8 @@ import numpy as np
 from tqdm import tqdm
 from tqdm import trange
 
-from gifgen.vtkgen.genprimitives import GenPrimitives
-from gifgen.vtkgen.swc import Swc
+from swc2gif.vtkgen.genprimitives import GenPrimitives
+from swc2gif.vtkgen.swc import Swc
 
 
 class VtkGenerator():
@@ -324,7 +324,7 @@ DATASET STRUCTURED_POINTS
             with open(datafilename, 'r') as f:
                 for line in f:
                     line_offset.append(offset)
-                    offset += len(line)+1 #+1 because len() will index of '\n' not the start of the new line
+                    offset += len(line) #for python 2.7 need +1 because len() will index of '\n' not the start of the new line
             line_offset_file_list.append(list(line_offset))
         
         # Loop through each VTK path, generating and writing data to the VTK
@@ -373,9 +373,10 @@ DATASET STRUCTURED_POINTS
                                 tempMin = min(tempMin, float(compartment_val))
                                 tempMax = max(tempMax, float(compartment_val))
                             except:
-                                print('Data File: '+vtk_name)
+                                print('Data File: '+vtk_file)
                                 print('Step: '+str(step))
-                                print('Line offset: '+str(line_offset_file_list[datafile_list_index][step]))
+                                print('Line offset: '+str(line_location))
+                                print('Line: '+line)
                                 print('Compartment Idx: '+str(compartment_idx))
                                 print('Compartment Value: '+compartment_val+':')
                             for j in range(self.ncell_per_compartment_per_swc[datafile_list_index][compartment_idx]):
