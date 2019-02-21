@@ -4,7 +4,7 @@ Created on 2018/05/22
 
 @author: Andres Morales
 
-main(vtk_path_file, [save_path=vtk_path, datatitle='vdata',
+vtk2gif(vtk_path_file, [save_path=vtk_path, datatitle='vdata',
     size=(1000,1000), showaxes=True, colorBounds=(), time_path_file='',
     numvtks=1, selectframes=[] or '', maxframes=float('Inf'),
     angleradians=False, startelevation=0, startazimuth=0,
@@ -61,7 +61,7 @@ selectframes: Can be a string of a file path, a list of integers, or a
     string, the file format expected is that the lines contain integers
     separated by spaces, and each line represents a sublist. If not
     given (or set to an empty list/string), each vtk will be converted
-    into a separate gif.
+    into a separate gif. Defaults to an empty list.
     (Example: 'C:\\Retina simulation\\morphology\\selectFrames.txt'
           or: [3,4,5,10,12]
           or: [[1,2,3], [1,3,5], [9,12,17]])
@@ -91,12 +91,10 @@ fps: A positive integer for the frames per second used by the gif.
     Defaults to 60.
 
 
-Prerequisite Packages:
-Install vtk packages using conda
-conda install -c anaconda vtk
+Prerequisite Packages: tqdm, imageio, mayavi
+pip install mayavi
+pip install --upgrade numpy tqdm imageio
 
-Install tqdm and mayavi (mayavi requires envisage and PySide)
-pip install tqdm envisage PySide mayavi==4.5.0
 """
 
 #alternate way of running: mayavi2 -x 'C:\Users\Andres\A_testchamber\vtk2gif.py'
@@ -110,7 +108,7 @@ from tqdm import tqdm
 from numpy import array
 import imageio
 
-def main(*arg, **kwargs):
+def vtk2gif(*arg, **kwargs):
     
     # Check if vtk file path was passed through arg
     if len(arg) == 0:
@@ -543,18 +541,3 @@ def main(*arg, **kwargs):
         
     # Close figure
     mlab.close()
-
-
-
-
-if __name__ == '__main__':
-    # Script is being run directly (as opposed to imported)
-    # Request input of vtk
-    import Tkinter, tkFileDialog
-    root = Tkinter.Tk()
-    root.withdraw()
-
-    print('Select VTK file') ; sys.stdout.flush()
-    vtk_path_file = tkFileDialog.askopenfilename()
-    
-    main(vtk_path_file)

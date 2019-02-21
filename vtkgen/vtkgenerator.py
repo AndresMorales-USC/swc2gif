@@ -60,7 +60,7 @@ DATASET STRUCTURED_POINTS
         self.cell_list = []
 
     def add_cylinder(self, pos_x=0, pos_y=0, pos_z=0, radius=1.0, height=1.0, rot_y=0, rot_z=0,
-                     data=0.0, radius_ratio=1.0):
+                     data=0.0, radius_ratio=1.0, div=7):
 
         local_cell_list = []
         local_point_list = []
@@ -74,7 +74,7 @@ DATASET STRUCTURED_POINTS
             local_cell_list, local_point_list = GenPrimitives.cylinder_3cell(top_face_diam=radius_ratio)
             self.ncell_per_compartment.append(len(local_cell_list))
         elif self.draw_mode == 3:
-            local_cell_list, local_point_list = GenPrimitives.hemisphere_cylinder(div=7, top_face_diam=radius_ratio,
+            local_cell_list, local_point_list = GenPrimitives.hemisphere_cylinder(div=div, top_face_diam=radius_ratio,
                                                                                           height=height, radius=radius)
             self.ncell_per_compartment.append(len(local_cell_list))
             height = 1.0
@@ -100,7 +100,7 @@ DATASET STRUCTURED_POINTS
         self.point_list.extend(local_point_list)
         self.cell_list.extend(local_cell_list)
 
-    def add_cylinder_p2p(self, pos1=(0, 0, 0), pos2=(2, 0, 0), size=1.0, data=0, radius_ratio=1.0):
+    def add_cylinder_p2p(self, pos1=(0, 0, 0), pos2=(2, 0, 0), size=1.0, data=0, radius_ratio=1.0, div=7):
         pos1 = np.array(pos1)
         pos2 = np.array(pos2)
         local_pos = pos2 - pos1
@@ -109,11 +109,11 @@ DATASET STRUCTURED_POINTS
         rot_z = np.arctan2(local_pos[1], np.sqrt(local_pos[0]**2 + local_pos[2]**2))
         length = np.sqrt(local_pos[0]**2 + local_pos[1]**2 + local_pos[2]**2)
 
-        self.add_cylinder(pos1[0], pos1[1], pos1[2], size, length, rot_y, rot_z, data, radius_ratio=radius_ratio)
+        self.add_cylinder(pos1[0], pos1[1], pos1[2], size, length, rot_y, rot_z, data, radius_ratio=radius_ratio, div=div)
 
         
         
-    def add_sphere(self, pos=(0,0,0), radius=1.0, data=0.0):
+    def add_sphere(self, pos=(0,0,0), radius=1.0, data=0.0, div=10):
         pos = np.array(pos)
         
         local_cell_list = []
@@ -126,10 +126,10 @@ DATASET STRUCTURED_POINTS
             local_cell_list, local_point_list = GenPrimitives.sphere()
             self.ncell_per_compartment.append(1)
         elif self.draw_mode == 2:
-            local_cell_list, local_point_list = GenPrimitives.sphere(pos, size=radius, data=data)
+            local_cell_list, local_point_list = GenPrimitives.sphere(pos, size=radius, data=data, div=div)
             self.ncell_per_compartment.append(len(local_cell_list))
         elif self.draw_mode == 3:
-            local_cell_list, local_point_list = GenPrimitives.sphere(pos, size=radius, data=data)
+            local_cell_list, local_point_list = GenPrimitives.sphere(pos, size=radius, data=data, div=div)
             self.ncell_per_compartment.append(len(local_cell_list))
         elif self.draw_mode == 4:
             local_cell_list, local_point_list = GenPrimitives.sphere()
@@ -145,21 +145,21 @@ DATASET STRUCTURED_POINTS
         
         
         
-    def convert_swc(self, diam_ratio=1.0, normalize_diam=False):
+    def convert_swc(self, diam_ratio=1.0, normalize_diam=False, sphere_div=6, cyl_div=8):
         self.converted = True
         self.ncell_per_compartment_per_swc = []
         
         for swc_data in tqdm(self.swc_list, desc='Convert SWC Data Into Primitive Shapes'):
             data_size = len(swc_data.data)
-            
-            for record in tqdm(swc_data.data.values(), desc='Converting: ' + swc_data.filename):
+            head, tail = os.path.split(swc_data.filename)
+            for record in tqdm(swc_data.data.values(), desc='Converting: ' + tail):
                 if normalize_diam:
                     drawing_radius = math.sqrt(record['radius']) * diam_ratio
                 else:
                     drawing_radius = record['radius'] * diam_ratio
                     
                 if record['parent'] <= 0 or record['type'] == 1:
-                    self.add_sphere(record['pos'], drawing_radius, float(record['id']) / data_size)
+                    self.add_sphere(record['pos'], drawing_radius, float(record['id']) / data_size, div=sphere_div)
                 else:
                     parent_record = swc_data.data[record['parent']]
                     if normalize_diam:
@@ -169,7 +169,7 @@ DATASET STRUCTURED_POINTS
                     
                     self.add_cylinder_p2p(record['pos'], parent_record['pos'], drawing_radius,
                                           float(record['id']) / data_size,
-                                          radius_ratio=(drawing_parent_radius/drawing_radius))
+                                          radius_ratio=(drawing_parent_radius/drawing_radius), div=cyl_div)
             self.ncell_per_compartment_per_swc.append(self.ncell_per_compartment)
             self.ncell_per_compartment = []
         self.point_text = self._point2text(self.point_list)
@@ -486,7 +486,7 @@ DATASET STRUCTURED_POINTS
 
     def write_vtk(self, filename, fixedval=None, datatitle='filedata', movingval=False, coloring=False,
                   diam_ratio=1.0, normalize_diam=False, radius_data=False, type_data=False, delimiter=' ',
-                  maxframes=float('Inf')):
+                  maxframes=float('Inf'), sphere_div=6, cyl_div=8):
         """generate and write vtk to file
 
         :param filename: Output VTK filename
@@ -510,7 +510,7 @@ DATASET STRUCTURED_POINTS
         :return:
         """
         if not self.converted:
-            self.convert_swc(diam_ratio=diam_ratio, normalize_diam=normalize_diam)
+            self.convert_swc(diam_ratio=diam_ratio, normalize_diam=normalize_diam, sphere_div=sphere_div, cyl_div=cyl_div)
         
         if len(self.timeddatafile_list) > 0:
             num_vtks, minV, maxV = self._timedfile2text(filename, self.timeddatafile_list, datatitle, delimiter, maxframes)

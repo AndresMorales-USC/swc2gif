@@ -191,8 +191,8 @@ class GenPrimitives():
         return cell_list, np.array(point_list)
 
     @classmethod
-    def sphere(cls, pos=(0, 0, 0), size=1.0, data=0.0, point_start=0):
-        local_cell_list, local_point_list = cls.base_sphere()
+    def sphere(cls, pos=(0, 0, 0), size=1.0, data=0.0, point_start=0, div=10):
+        local_cell_list, local_point_list = cls.base_sphere(div=div)
 
         for cell in local_cell_list:
             cell['points'] = [i + point_start for i in cell['points']]
