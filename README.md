@@ -5,9 +5,11 @@ Converts SWC(s) (and voltage and other data) into a VTK model(s) and then into a
 # Install mayavi and other prerequisites
     (I recommend setting up a virtual environment using conda, though not entirely necissary)
 conda create -n swc2gif_env python=3.6 anaconda
+
 source activate swc2gif_env
 
 pip install mayavi
+
 pip install --upgrade tqdm numpy scipy imageio
 
 
