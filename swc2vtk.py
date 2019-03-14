@@ -5,9 +5,12 @@ Created on 2018/05/22
 @author: Andres Morales
 
 swc2vtk(swc_path_file(s), [data_path_file(s)],
-    [save_path=swc_path, vtk_name='model.vtk', datatitle='vdata',
+    [
+    save_path=swc_path, vtk_name='model.vtk', datatitle='vdata',
     datadelimiter=' ', coordsdelimiter='	', maxframes=float('Inf'),
-    spherediv=6, cyldiv=8])
+    spherediv=6, cyldiv=8, invertSWC=[False, False, False],
+    scaleSWC=1.0, shiftSWC=[0.0,0.0,0.0]
+    ])
 
 Takes swc morphology file(s) and converts them into vtk model files.
     Also, returns number of vtk's saved and the min and max data values
@@ -63,6 +66,18 @@ spherediv: An integer for the number of radial sides to modeled spheres.
     
 cyldiv:  An integer for the number of radial sides to modeled cylinders.
     The default value is 8.
+
+invertSWC: A list of 3 booleans for inverting the axis(es) of the swc
+    coordinates. This is done before scaling and shifting of swc
+    coordinates. Default is [False, False, False].
+
+scaleSWC: A float for scaling the swc coordinates to fit the
+    dimensions of the data files. It is done after inversion and before
+    shifting of swc coordinates. Default is 1.0.
+    
+shiftSWC: A list of 3 floats for shifting the origin of the swc
+    coordinates. This is done after scaling and inversion of swc
+    coordinates. Default is [0.0, 0.0, 0.0].
 
 
 Prerequisite Packages: tqdm

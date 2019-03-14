@@ -4,11 +4,14 @@ Created on 2018/05/22
 
 @author: Andres Morales
 
-vtk2gif(vtk_path_file, [save_path=vtk_path, datatitle='vdata',
-    size=(1000,1000), showaxes=True, colorBounds=(), time_path_file='',
-    numvtks=1, selectframes=[] or '', maxframes=float('Inf'),
-    angleradians=False, startelevation=0, startazimuth=0,
-    stepelevation=0, stepazimuth=0])
+vtk2gif(vtk_path_file,
+    [
+    save_path=vtk_path, datatitle='vdata', size=(1000,1000),
+    showaxes=True, colorBounds=(), time_path_file='', numvtks=1,
+    selectframes=[] or '', maxframes=float('Inf'), angleradians=False,
+    startelevation=0, startazimuth=0, stepelevation=0, stepazimuth=0,
+    bgcolor=(0.0,0.0,0.0)
+    ])
 
 Takes VTK file(s) containing vdata, where each vdata## is a different
     frame of the produced GIF(s).

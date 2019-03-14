@@ -5,9 +5,11 @@ Converts SWC(s) (and voltage and other data) into a VTK model(s) and then into a
 # Install mayavi and other prerequisites
     (I recommend setting up a virtual environment using conda, though not entirely necissary)
 conda create -n swc2gif_env python=3.6 anaconda
+
 source activate swc2gif_env
 
 pip install mayavi
+
 pip install --upgrade tqdm numpy scipy imageio
 
 
@@ -20,7 +22,10 @@ from swc2gif.mapswc import mapswc
 
 mapswc(swc_path_file(s), data_path_file, coordinate_path_file,
     [save_path=swc_path, vtk_name='model.vtk', datatitle='vdata',
-    datadelimiter=' ', coordsdelimiter='	'])
+    datadelimiter=' ', coordsdelimiter='	',
+    shiftData=[0.0,0.0,0.0], scaleData=1.0,
+    invertData=[False, False, False], invertSWC=[False, False, False],
+    scaleSWC=1.0, shiftSWC=[0.0,0.0,0.0]])
     
 Takes morphology file(s) and maps nearest neighboring data to each
     section. Data for each swc is saved into a separate associated
@@ -31,7 +36,8 @@ from swc2gif.swc2vtk import swc2vtk
 swc2vtk(swc_path_file(s), [data_path_file(s)],
     [save_path=swc_path, vtk_name='model.vtk', datatitle='vdata',
     datadelimiter=' ', coordsdelimiter='	', maxframes=float('Inf'),
-    spherediv=6, cyldiv=8])
+    spherediv=6, cyldiv=8, invertSWC=[False, False, False],
+    scaleSWC=1.0, shiftSWC=[0.0,0.0,0.0]])
     
 Takes swc morphology file(s) and converts them into vtk model files.
     Also, returns number of vtk's saved and the min and max data values
@@ -43,7 +49,8 @@ vtk2gif(vtk_path_file,
     [save_path=vtk_path, datatitle='vdata', size=(1000,1000),
     showaxes=True, colorBounds=(), time_path_file='', numvtks=1,
     selectframes=[] or '', maxframes=float('Inf'), angleradians=False,
-    startelevation=0, startazimuth=0, stepelevation=0, stepazimuth=0])
+    startelevation=0, startazimuth=0, stepelevation=0, stepazimuth=0,
+    bgcolor=(0.0,0.0,0.0)])
     
 Takes VTK file(s) containing vdata, where each vdata## is a different
     frame of the produced GIF(s).
