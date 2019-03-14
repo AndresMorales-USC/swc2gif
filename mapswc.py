@@ -114,6 +114,31 @@ def mapswc(*args, **kwargs):
     # Coordinate file default delimiter: '	'
     coordsdelimiter = kwargs.get('coordsdelimiter', '	')
     
+    # shiftData = [x,y,z] [0.0, 0.0, 0.0]:
+    # Done before sacle and invert of data coordinates
+    shiftData = kwargs.get('shiftData', [0.0, 0.0, 0.0])
+    
+    # scaleData = 1.0:
+    # scale size (positions and radius) of swc
+    # Done after shift and before invert of data coordinates
+    scaleData = kwargs.get('scaleData', 1.0)
+
+    # invertData = [x, y, z] [False, False, False]:
+    # Done after shift and scale of data coordinates
+    invertData = kwargs.get('invertData', [False, False, False])
+
+    # invertSWC = [x, y, z] [False, False, False]:
+    # Done before scale and shift of swc coordinates
+    invertSWC = kwargs.get('invertSWC', [False, False, False])
+    
+    # scaleSWC = 1.0:
+    # scale size (positions and radius) of swc
+    # Done after invert and before shift of swc coordinates
+    scaleSWC = kwargs.get('scaleSWC', 1.0)
+    
+    # shiftSWC = [x,y,z] [0.0, 0.0, 0.0]:
+    # Done after invert and scale of swc coordinates
+    shiftSWC = kwargs.get('shiftSWC', [0.0, 0.0, 0.0])
 
     # Convert all data using SWC's and coordinate TXT's
 
@@ -131,7 +156,13 @@ def mapswc(*args, **kwargs):
                 try:
                     float_list.append(float(val))
                 except:
+                    print('Error: Unable to append single val as float to coord list')
+                    print('Error may occur due to incorrect delimiters')
+                    print('val:')
                     print(val)
+            float_list[0] = (float_list[0]+shiftData[0])*scaleData*(1-2*invertData[0])
+            float_list[1] = (float_list[1]+shiftData[1])*scaleData*(1-2*invertData[1])
+            float_list[2] = (float_list[2]+shiftData[2])*scaleData*(1-2*invertData[2])
             data_coords.append(float_list)
 
     # Generate KDTree
@@ -144,6 +175,17 @@ def mapswc(*args, **kwargs):
     for file_idx, swc_path_file in enumerate(tqdm(swc_list, desc='Aligning Data to SWC\'s')):
         tempHead, swc_file = os.path.split(swc_path_file)
         swc = Swc(swc_path_file)
+        
+        # Adjust scale, position, and axis inversion of SWC
+        if invertSWC != [False, False, False]:
+            print('Inverting Axis: '+swc_file)
+            swc.invert(invertSWC[0],invertSWC[1],invertSWC[2])
+        if scaleSWC != 1.0:
+            print('Rescaling: '+swc_file)
+            swc.scaleSize(scaleSWC)
+        if shiftSWC != [0.0, 0.0, 0.0]:
+            print('Shifting Origin: '+swc_file)
+            swc.shift(shiftSWC[0],shiftSWC[1],shiftSWC[2])
         
         # Iterate through each swc compartment and generate reference list
         compartment_coords_idx = []

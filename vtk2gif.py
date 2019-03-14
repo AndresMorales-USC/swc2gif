@@ -70,6 +70,24 @@ maxframes: A float of the maximum number of frames in each vtk. MUST be
     set to an positive non-zero integer, if more than 1 vtk is used.
     Defaults to infinity.
 
+startpositionoffset: A list of 3 floats that is converted into a numpy
+    array. This offsets the automatically set focal point and camera
+    positions.
+    Default is [0.0,0.0,0.0].
+
+startradius: A float for the change from the automatically set value for
+    the distance of camera from the focal point for the first animation
+    frame.
+    Default is 0.
+
+stepposition: A list of 3 floats that is converted into a numpy array.
+    The list sets the change in focal point and camera position for
+    each frame of animation.
+    Default is [0.0,0.0,0.0].
+
+stepradius: A float for the change in distance of camera and focal point
+    each frame of animation.
+
 angleradians: A boolean for whether angles provided are in radians.
     Defaults to False.
 
@@ -88,8 +106,10 @@ stepazimuth: A float for the azimuth angle change each frame.
     Defaults to 0.
     
 fps: A positive integer for the frames per second used by the gif.
-    Defaults to 60.
+    Defaults to 50.
 
+bgcolor: Background color of animation is a tuple of rgb values.
+    Defaults to black (0.0,0.0,0.0)
 
 Prerequisite Packages: tqdm, imageio, mayavi
 pip install mayavi
@@ -152,10 +172,16 @@ def vtk2gif(*arg, **kwargs):
     # Maximum frames per vtk default: infinite
     maxframes = kwargs.get('maxframes', float('Inf'))
     
+    # Default camera focal point and radius offsets and movement: 0
+    startpositionoffset = array(kwargs.get('startpositionoffset', [0.0,0.0,0.0]))
+    startradiusoffset = kwargs.get('startradiusoffset', 0)
+    stepposition = array(kwargs.get('stepposition', [0.0,0.0,0.0]))
+    stepradius = kwargs.get('stepradius', 0)
+    
     # Default unit of camera angle: degrees
     angleradians =  kwargs.get('angleradians', False)
     
-    # Default elevation and azimuth angles: 0 (degrees)
+    # Default camera elevation and azimuth angles: 0 (degrees)
     if angleradians:
         startelevation = kwargs.get('startelevation', 0)
         startazimuth = kwargs.get('startazimuth', 0)
@@ -166,8 +192,14 @@ def vtk2gif(*arg, **kwargs):
         startazimuth = math.radians(kwargs.get('startazimuth', 0))
         stepelevation = math.radians(kwargs.get('stepelevation', 0))
         stepazimuth = math.radians(kwargs.get('stepazimuth', 0))
-        
+    
+    # Default is 50 frames per seconds of animation
     fps = kwargs.get('fps', 50)
+
+    # Background color is default to black (r=0.0, g=0.0, b=0.0)
+    bgcolor = kwargs.get('bgcolor', (0.0,0.0,0.0))
+
+
 
     # If time data exists, load into an array
     time_data = []
@@ -249,47 +281,10 @@ def vtk2gif(*arg, **kwargs):
         return src
     
     
-    #def _get_frame(f):
-    #    # Change data to next vdata step
-    #    src._cell_scalars_name = src._cell_scalars_list[datalist[int(f)]]
-    #    
-    #    # Set camera angle
-    #    elevation = startelevation+stepelevation*int(f)
-    #    azimuth = startazimuth+stepazimuth*int(f)
-    #    new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
-    #    new_cam_pos = new_rel_cam_pos+focal_point
-    #    scn.scene.camera.position = new_cam_pos
-    #    
-    #    # Update frame for viewing
-    #    src.update_data()
-    #    scn.scene.render()
-    #    
-    #    # Enforce colorbar title and limits
-    #    framenum = int(src._cell_scalars_name[-frameChars:])
-    #    if useTime: # Use time stamps from file
-    #        timeIDX = framenum-1 # Frames start counting at 1, but the time index starts at 0
-    #        timeStep = time_data[timeIDX]
-    #        if len(timeStep) < timeChars: # Add padding for consistent title formatting/spacing
-    #            timeStepString = 'Time(s): '+' '*(timeChars-len(timeStep))+timeStep
-    #        else:
-    #            timeStepString = 'Time(s): '+timeStep
-    #    else: # Use frame number
-    #        framenum_str = str(framenum)
-    #        if len(framenum_str) < frameChars:
-    #            timeStepString = 'Frame: '+' '*(frameChars-len(framenum_str))+framenum_str
-    #        else:
-    #            timeStepString = 'Frame: '+str(framenum_str)
-    #    module_manager.scalar_lut_manager.scalar_bar.title = 'Voltage (mV) at '+timeStepString
-    #    module_manager.scalar_lut_manager.data_range = array([minV, maxV])
-    #    # Append the figure to the gif animation
-    #    f = mlab.gcf()
-    #    f.scene._lift()
-    #    return mlab.screenshot()
-    
     
     
     # Create new scene with set window size (which defines the gif size)
-    scn = mlab.figure(size=size)
+    scn = mlab.figure(size=size, bgcolor=bgcolor) #bgcolor must be tuple (0.0,0.0,0.0) - (1.0,1.0,1.0)
     # Enable view of x,y,z-axes labels
     scn.scene.show_axes = showaxes
     # Set view to +z axes
@@ -374,13 +369,15 @@ def vtk2gif(*arg, **kwargs):
             # Calculate the number of characters used for the number of the last frame (for future typography)
             frameChars = sum(c.isdigit() for c in src._cell_scalars_list[datalist[0]])
             
-            # Setup view angle data
-            focal_point = scn.scene.camera.focal_point
+            # Get the auto set view angle data
+            start_focal_point = scn.scene.camera.focal_point
             cam_pos = scn.scene.camera.position
-            rel_cam_pos = cam_pos-focal_point
-            rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
+            rel_cam_pos = cam_pos-start_focal_point
+            start_rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
             
-            # Set camera angles to start values
+            # Set focal point, camera radius, and angles to start values
+            focal_point = start_focal_point + startpositionoffset
+            rel_radius = start_rel_radius + startradiusoffset
             elevation = startelevation
             azimuth = startazimuth
             
@@ -392,8 +389,9 @@ def vtk2gif(*arg, **kwargs):
                     src._cell_scalars_name = src._cell_scalars_list[frameIDX]
                     
                     # Set camera angle
-                    new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
+                    new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation), rel_radius*math.cos(elevation)*math.cos(azimuth)])
                     new_cam_pos = new_rel_cam_pos+focal_point
+                    scn.scene.camera.focal_point = focal_point
                     scn.scene.camera.position = new_cam_pos
                     scn.scene.renderer.reset_camera_clipping_range()
                     #scn.scene.camera.clipping_range = [100,100]
@@ -401,6 +399,8 @@ def vtk2gif(*arg, **kwargs):
                     #scn.scene.render()
                     
                     # Step camera angle values for future frames
+                    focal_point += stepposition
+                    rel_radius += stepradius
                     if elevation+stepelevation >= math.radians(-90) and elevation+stepelevation <= math.radians(90):
                         elevation += stepelevation
                     azimuth += stepazimuth
@@ -414,9 +414,9 @@ def vtk2gif(*arg, **kwargs):
                         timeIDX = framenum-1 # Frames start counting at 1, but the time index starts at 0
                         timeStep = time_data[timeIDX]
                         if len(timeStep) < timeChars: # Add padding for consistent title formatting/spacing
-                            timeStepString = 'Time(s): '+' '*(timeChars-len(timeStep))+timeStep
+                            timeStepString = 'Time(ms): '+' '*(timeChars-len(timeStep))+timeStep
                         else:
-                            timeStepString = 'Time(s): '+timeStep
+                            timeStepString = 'Time(ms): '+timeStep
                     else: # Use frame number
                         framenum_str = str(framenum)
                         if len(framenum_str) < frameChars:
@@ -448,19 +448,22 @@ def vtk2gif(*arg, **kwargs):
         # Calculate the number of characters used for the number of the last frame (for future typography)
         frameChars = sum(c.isdigit() for c in src._cell_scalars_list[datalist[0]])
         
-        # Setup view angle data
-        focal_point = scn.scene.camera.focal_point
+        # Get the auto set view angle data
+        start_focal_point = scn.scene.camera.focal_point
         cam_pos = scn.scene.camera.position
-        rel_cam_pos = cam_pos-focal_point
-        rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
+        rel_cam_pos = cam_pos-start_focal_point
+        start_rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
         
         # Loop through lists of sublists
         for gif_list in tqdm(select_frame_list, desc='Generating GIF(s)'):
-            # Set camera angles to start values
+            # Set focal point, camera radius, and angles to start values
+            focal_point = start_focal_point + startpositionoffset
+            rel_radius = start_rel_radius + startradiusoffset
             elevation = startelevation
             azimuth = startazimuth
             new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
             new_cam_pos = new_rel_cam_pos+focal_point
+            scn.scene.camera.focal_point = focal_point
             scn.scene.camera.position = new_cam_pos
             
             # Generate gif name and start exporting frames
@@ -497,16 +500,19 @@ def vtk2gif(*arg, **kwargs):
                     # Change data to next selected frame
                     src._cell_scalars_name = src._cell_scalars_list[datalist[vtkIDX]]
                     
-                    # Set camera angle
-                    new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
+                    # Set camera position and angle
+                    new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation), rel_radius*math.cos(elevation)*math.cos(azimuth)])
                     new_cam_pos = new_rel_cam_pos+focal_point
+                    scn.scene.camera.focal_point = focal_point
                     scn.scene.camera.position = new_cam_pos
                     scn.scene.renderer.reset_camera_clipping_range()
                     #scn.scene.camera.clipping_range = [100,100]
                     #scn.scene.camera.compute_view_plane_normal()
                     #scn.scene.render()
                     
-                    # Step camera angle values for future frames
+                    # Step camera position and angle values for future frames
+                    focal_point += stepposition
+                    rel_radius += stepradius
                     if elevation+stepelevation >= math.radians(-90) and elevation+stepelevation <= math.radians(90):
                         elevation += stepelevation
                     azimuth += stepazimuth
@@ -520,9 +526,9 @@ def vtk2gif(*arg, **kwargs):
                         timeIDX = framenum-1 # Frames start counting at 1, but the time index starts at 0
                         timeStep = time_data[timeIDX]
                         if len(timeStep) < timeChars: # Add padding for consistent title formatting/spacing
-                            timeStepString = 'Time(s): '+' '*(timeChars-len(timeStep))+timeStep
+                            timeStepString = 'Time(ms): '+' '*(timeChars-len(timeStep))+timeStep
                         else:
-                            timeStepString = 'Time(s): '+timeStep
+                            timeStepString = 'Time(ms): '+timeStep
                     else: # Use frame number
                         framenum_str = str(framenum)
                         if len(framenum_str) < frameChars:

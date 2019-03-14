@@ -79,6 +79,14 @@ class Swc():
                 val['pos'][1] *= -1.0
             if z is True:
                 val['pos'][2] *= -1.0
+    
+    def scaleSize(self, sf=1.0):
+        for k, val in self.data.items():
+            val['pos'][0] *= sf
+            val['pos'][1] *= sf
+            val['pos'][2] *= sf
+            val['radius'] *= sf
+            
 
 if __name__ == '__main__':
     swc = Swc(os.path.join('..', 'swc', 'simple.swc'))

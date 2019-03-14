@@ -176,7 +176,9 @@ DATASET STRUCTURED_POINTS
         self.cell_text = self._cell2text(self.cell_list)
 
     def add_swc(self, swc_filename,
-                shift_x=0.0, shift_y=0.0, shift_z=0.0, inv_x=False, inv_y=False, inv_z=False):
+                shift_x=0.0, shift_y=0.0, shift_z=0.0,
+                inv_x=False, inv_y=False, inv_z=False,
+                scale_factor=1.0):
         """add swc file for generating vtk file
 
         :param swc_filename: swc filename
@@ -191,6 +193,7 @@ DATASET STRUCTURED_POINTS
         self.converted = False
         self.swc_list.append(Swc(swc_filename))
         self.swc_list[-1].invert(inv_x, inv_y, inv_z)
+        self.swc_list[-1].scaleSize(scale_factor)
         self.swc_list[-1].shift(shift_x, shift_y, shift_z)
 
     @staticmethod

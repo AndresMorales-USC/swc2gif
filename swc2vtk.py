@@ -146,7 +146,19 @@ def swc2vtk(*args, **kwargs):
     
     # Default # of divisions of modeled cylinders: 8
     cyldiv = kwargs.get('cyldiv', 8)
+
+    # invertSWC = [x, y, z] [False, False, False]:
+    # Done before scale and shift of swc coordinates
+    invertSWC = kwargs.get('invertSWC', [False, False, False])
     
+    # scaleSWC = 1.0:
+    # scale size (positions and radius) of swc
+    # Done after invert and before shift of swc coordinates
+    scaleSWC = kwargs.get('scaleSWC', 1.0)
+    
+    # shiftSWC = [x,y,z] [0.0, 0.0, 0.0]:
+    # Done after invert and scale of swc coordinates
+    shiftSWC = kwargs.get('shiftSWC', [0.0, 0.0, 0.0])
     
     # Initialize VTK and add SWC file(s)
     head, tail = os.path.split(swc_list[0])
@@ -157,7 +169,9 @@ def swc2vtk(*args, **kwargs):
         vtk_path_file = os.path.join(save_path, vtk_name)
     vtk = vtkgen.VtkGenerator()
     for swc_path_file in swc_list:
-        vtk.add_swc(swc_path_file)
+        vtk.add_swc(swc_path_file, shift_x=shiftSWC[0], shift_y=shiftSWC[1], shift_z=shiftSWC[2],
+                                    inv_x=invertSWC[0], inv_y=invertSWC[1], inv_z=invertSWC[2],
+                                    scale_factor=scaleSWC)
     
     
     # Check if data needs to be added to VTK
