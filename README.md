@@ -3,15 +3,20 @@ Converts SWC(s) (and voltage and other data) into a VTK model(s) and then into a
 
 
 # Install mayavi and other prerequisites
-    (I recommend setting up a virtual environment using conda, though not entirely necissary)
-conda create -n swc2gif_env python=3.6 anaconda
+(I recommend setting up a virtual environment using conda, though not entirely necissary)
 
-source activate swc2gif_env
+for python 3.6:
 
-pip install mayavi
+    conda create -n swc2gif_env python=3.6 anaconda
+    source activate swc2gif_env
+    pip install mayavi
+    pip install --upgrade tqdm numpy scipy imageio
 
-pip install --upgrade tqdm numpy scipy imageio
+for python 2.7:
 
+    conda create -n swc2gif_env python=2.7 anaconda
+    source activate swc2gif_env
+    conda install vtk mayavi tqdm imageio pillow numpy scipy
 
 # Functions
     function import code
@@ -58,14 +63,16 @@ Takes VTK file(s) containing vdata, where each vdata## is a different
 
 
 # Example Code
-    (requires editing variables with *_path* to point to proper input files/folders)
-python -m swc2gif.example.py
+(requires editing variables with *_path* to point to proper input files/folders)
 
-    or
-ipython -m swc2gif.example.py
+    python -m swc2gif.example.py
 
-    or
-ipython swc2gif/example.py
+or
 
-    or
-mayavi2 -x 'swc2gif/example.py'
+    ipython -m swc2gif.example.py
+or
+
+    ipython swc2gif/example.py
+or
+
+    mayavi2 -x 'swc2gif/example.py'
