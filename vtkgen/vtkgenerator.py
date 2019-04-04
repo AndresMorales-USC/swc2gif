@@ -280,6 +280,13 @@ DATASET STRUCTURED_POINTS
         
     def _timedfile2text(self, filename, datafile_list, title, delimiter, maxframes):
         
+        # Check version of Python running (if <3, "len(readline())" will return index of '\n' not the start of the new line)
+        import sys
+        if sys.version_info[0] < 3:
+            pythonLineCorrection = 1
+        else:
+            pythonLineCorrection = 0
+        
         # Check if number of data files is 1 or equal to the number of swc's
         if len(datafile_list) != 1 and len(datafile_list) != len(self.swc_list):
             print('Warning: there is mismatch of data file and swc file (datafile=%d, swcfile=%d)'
@@ -327,7 +334,7 @@ DATASET STRUCTURED_POINTS
             with open(datafilename, 'r') as f:
                 for line in f:
                     line_offset.append(offset)
-                    offset += len(line) #for python 2.7 need +1 because len() will index of '\n' not the start of the new line
+                    offset += len(line)+pythonLineCorrection #for python 2.7 need +1 because len() will index of '\n' not the start of the new line
             line_offset_file_list.append(list(line_offset))
         
         # Loop through each VTK path, generating and writing data to the VTK
