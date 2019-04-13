@@ -280,9 +280,9 @@ DATASET STRUCTURED_POINTS
         
     def _timedfile2text(self, filename, datafile_list, title, delimiter, maxframes):
         
-        # Check version of Python running (if <3, "len(readline())" will return index of '\n' not the start of the new line)
-        import sys
-        if sys.version_info[0] < 3:
+        # Check system Python is running on (if 'Windows', "len(readline())" will return index of '\n' not the start of the new line)
+        import platform
+        if platform.system()=='Windows':
             pythonLineCorrection = 1
         else:
             pythonLineCorrection = 0
