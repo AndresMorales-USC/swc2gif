@@ -12,15 +12,15 @@ Converts SWC(s) (and voltage and other data) into a VTK model(s) and then into a
     pip install PyQt5
 
 # Possible instillation issues:
-- Conda environments fail to activate (CommandNotFoundError: No command 'conda conda'.) and possibly break conda command
+Conda environments fail to activate (CommandNotFoundError: No command 'conda conda'.) and possibly break conda command
+- Solution: revert conda to older version (4.6.7 or 4.5.12) before creating environment
 
-Solution: revert conda to older version (4.6.7 or 4.5.12) before creating environment
-    conda install -n base conda==4.6.7
+        conda install -n base conda==4.6.7
 
-- PyQt5 causing windows error about Bluetooth API
+PyQt5 causing windows error about Bluetooth API
+- Solution: Install older version of PyQt5 (5.9.2)
 
-Solution: Install older version of PyQt5 (5.9.2)
-    pip install PyQt5==5.9.2
+        pip install PyQt5==5.9.2
 
 
 # Functions
