@@ -11,7 +11,7 @@ Converts SWC(s) (and voltage and other data) into a VTK model(s) and then into a
     pip install mayavi
     pip install PyQt5
 
-# Possible instillation issues:
+# Possible installation issues:
 Conda environments fail to activate (CommandNotFoundError: No command 'conda conda'.) and possibly break conda command
 - Solution: revert conda to older version (4.6.7 or 4.5.12) before creating environment
 
