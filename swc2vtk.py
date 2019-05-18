@@ -4,46 +4,55 @@ Created on 2018/05/22
 
 @author: Andres Morales
 
-swc2vtk(swc_path_file(s), [data_path_file(s)],
+swc2vtk(swc_path_file(s), [data_path_file, coord_path_file],
     [
-    save_path=swc_path, vtk_name='model.vtk', datatitle='vdata',
-    datadelimiter=' ', coordsdelimiter='	', maxframes=float('Inf'),
-    spherediv=6, cyldiv=8, invertSWC=[False, False, False],
-    scaleSWC=1.0, shiftSWC=[0.0,0.0,0.0]
+    time_path_file='', save_path=swc_path, vtk_name='model.vtk',
+    datatitle='vdata', datadelimiter=' ', coordsdelimiter='	',
+    fpvtk=float('Inf'), spherediv=6, cyldiv=8,
+    invertSWC=((False, False, False),), scaleSWC=(1.0,),
+    shiftSWC=((0.0,0.0,0.0),)
     ])
 
 Takes swc morphology file(s) and converts them into vtk model files.
-    Also, returns number of vtk's saved and the min and max data values
-    of all frames of all vtk's.
+    Also, returns the min and max data values of all vtk's.
 
 
 Required Argument:
 swc_path_file(s): A string containing the file path and file name,
     or tuple/list of strings containing the file paths and file names,
     of the ".swc" file(s).
-    (Example 1: 'C:\\Retina simulation\\morphology\\606.swc'
-     Example 2: ('C:\\Retina simulation\\morphology\\606.swc',
-                'C:\\Retina simulation\\morphology\\1010.swc')
-            or: ['C:\\Retina simulation\\morphology\\606.swc',
-                'C:\\Retina simulation\\morphology\\1010.swc'])
-
+    (Example 1: 'C:/Retina simulation/morphology/606.swc'
+     Example 2: ('C:/Retina simulation\\morphology/606.swc',
+                'C:/Retina simulation/morphology/1010.swc')
+            or: ['C:/Retina simulation/morphology/606.swc',
+                'C:/Retina simulation/morphology/1010.swc']
+    )
 
 Optional Arguments:
-data_path_file(s): A string containing the file path and file name,
-    or tuple/list of strings containing the file paths and file names,
-    of the ".txt" data file(s). Each data file is information to be
-    mapped to a specific swc (swc & data file lists must be of equal
-    size and ordering).
-    (Example 1: 'C:\\Retina simulation\\morphology\\voltage_data.txt'
-     Example 2: ['C:\\Retina simulation\\morphology\\606_data.txt',
-                 'C:\\Retina simulation\\morphology\\1010_data.txt'])
+data_path_file: A string containing the file path and file name of the
+    ".v" data file. Data must be in a single file where each line is 
+    a different time step.
+    (Example: 'C:/Retina simulation/morphology/voltage_data.v')
 
+coord_path_file: A string containing the file path and file
+    name of the ".txt" coordinate file. Each line of the file is 3
+    numbers separated by some delimiter giving a single location
+    coordinate. The number of lines of the coorindate file should equal
+    the number of values in a single line of the data file.
+    (Example: 'C:/Retina simulation/morphology/coords_data.txt')
 
 Optional Kew Word Arguments:
+time_path_file: A string containing the file path and name of the '.txt'
+    document with the time stamps of the data. Each line of the
+    document is the time (milliseconds) of each frame. If given, the
+    title in the gif produced by vtk2gif will use the time stamp instead
+    of the frame number.
+    (Example: 'C:/Retina simulation/morphology/sectionTimes.txt')
+
 save_path: A string containing the file path of where to save generated
     files (alinged data files or ".vtk" files). Save_path defaults to 
     the same folder as where the ".swc" files are read.
-    (Example: 'C:\\Retina simulation\\outputs')
+    (Example: 'C:/Retina simulation/outputs')
 
 vtk_name: A string containing the file name of the ".vtk" file to be
     generated. vtk_name, if not given, is set to 'model.vtk'.
@@ -54,12 +63,18 @@ datatitle: A string containing the name to label data within the ".vtk"
 datadelimiter: A string used to split input from the data file. The
     default data delimiter is ' '.
 
-maxframes: An integer for the maximum number of frames to
+coordsdelimiter: A string used to split input from the coordinate file.
+    The default coordinate data delimiter is '	'.
+
+fpvtk: An integer for the maximum number of frames to
     be written to a single ".vtk". If the number of frames in the data
-    file exceedes maxframes, multiple ".vtk"s will be written. Each vtk
+    file exceedes fpvtk, multiple ".vtk"s will be written. Each vtk
     containing at most the frame quota and sequentially labeled with
     the prefix '_' and a number (starting at 0). The default value is
-    actually a float for infinity.
+    a float for infinite.
+   #Note: Single VTK's with large numbers of frames (>500) drastically
+    increases render time in mayavi, while only minimally reducing
+    total space taken up by vtk files.
     
 spherediv: An integer for the number of radial sides to modeled spheres.
     The default value is 6.
@@ -67,21 +82,67 @@ spherediv: An integer for the number of radial sides to modeled spheres.
 cyldiv:  An integer for the number of radial sides to modeled cylinders.
     The default value is 8.
 
-invertSWC: A list of 3 booleans for inverting the axis(es) of the swc
-    coordinates. This is done before scaling and shifting of swc
-    coordinates. Default is [False, False, False].
-
-scaleSWC: A float for scaling the swc coordinates to fit the
-    dimensions of the data files. It is done after inversion and before
-    shifting of swc coordinates. Default is 1.0.
+# NEURON shifts the origin and scales the area of voltage data input
+    into it, but generates data that is properly scaled and centered.
+    This means that data used as input for NEURON must be shifted and
+    scaled for visualization, but data generated by NEURON doesn't need
+    the extra work. The coordinates of either the data or swc's can be
+    changed to make the correction, but shifting/scaling/inverting the
+    data coords is preferable to the swc coords. Data only needs to be
+    done during mapping, while swc would need to be done during mapping
+    and vtk generation. By listing the same swc multiple times in
+    swc_path_file and giving different swc-coordinate modifications,
+    one can tile the same morphology in multiple locations.
     
-shiftSWC: A list of 3 floats for shifting the origin of the swc
-    coordinates. This is done after scaling and inversion of swc
-    coordinates. Default is [0.0, 0.0, 0.0].
+shiftData: A tuple or list of 3 floats for shifting the origin of the
+    data coordinates. This is done before scaling and inversion of data
+    coordinates. Default is (0.0, 0.0, 0.0).
+
+scaleData: A float or int for scaling the data coordinates to fit the
+    dimensions of the morphology files. It is done after shifting and
+    before inversion of data coordinates. Default is 1.0.
+
+invertData: A tuple or list of 3 booleans for inverting the axis(es) of
+    the data coordinates. This is done after shifting and scaling of
+    data coordinates. Default is (False, False, False).
+
+invertSWC: A tuple/list, equal in length to the number of swc files,
+    and each element is a tuple/list of 3 booleans for inverting the
+    axis(es) of the swc coordinates. This is done before scaling and
+    shifting of swc coordinates.
+    Default is len(swc_list)*((False, False, False),).
+    (Example 1: ((False, False, False))
+     Example 2: ((False, False, False),
+                (False, True, False))
+            or: [(False, False, False),
+                (False, True, False)]
+    )
+
+scaleSWC: A tuple/list, equal in length to the number of swc files,
+    and each element is a float or int for scaling the swc coordinates
+    to fit the dimensions of the data files. It is done after inversion
+    and before shifting of swc coordinates.
+    Default is len(swc_list)*(1.0,).
+    (Example 1: (1.0)
+     Example 2: (1.0, 2.0)
+            or: [1.0, 2.0]
+    )
+    
+shiftSWC: A tuple/list, equal in length to the number of swc files,
+    and each element is a tuple/list of 3 floats for shifting the
+    origin of the swc coordinates. This is done after scaling and
+    inversion of swc coordinates.
+    Default is len(swc_list)*((0.0, 0.0, 0.0),).
+    (Example 1: ((0.0, 0.0, 0.0))
+     Example 2: ((0.0, 0.0, 0.0),
+                (1.0, 50.0, -10.0))
+            or: [(0.0, 0.0, 0.0),
+                (1.0, 50.0, -10.0)]
+    )
 
 
-Prerequisite Packages: tqdm
-pip install tqdm
+Prerequisite Packages: tqdm, scipy
+pip install tqdm scipy
 
 """
 
@@ -90,11 +151,10 @@ import os
 from tqdm import tqdm
 
 def swc2vtk(*args, **kwargs):
-    # Check if swc and data file paths were passed through arg
-    # If only 1, assume data was intentionally not included
-    # If more than 2 will ignore extra args
-    if len(args) == 0:
-        print('ERROR: Not enough arguments [minimum: list of swc''s]')
+    # Check if swc, data file, and coordinate file paths were passed through args
+    # Also check if input args are the correct types
+    if not (len(args) == 1 or len(args) == 3):
+        raise TypeError('swc2vtk expected 1 or 3 arguments (swc_list, [data_path_file, coordinate_path_file]), got ' +len(args))
     else: # SWC arguments are contained in args
         # Place file path strings into a list from whatever format it was submitted
         if isinstance(args[0], str):
@@ -104,32 +164,40 @@ def swc2vtk(*args, **kwargs):
         elif isinstance(args[0], list):
             swc_list = args[0]
         else:
-            print('Warning: Unknown input for swc file(s)')
+            raise TypeError('swc2vtk expected str, tuple, or list for swc_list, got '+str(type(swc_list)))
+        # Check if all SWC's have .swc as file types
+        if not checkfiletype(swc_list, 'swc'):
+            raise TypeError('swc2vtk expected all of swc_list string elements to end in \'.swc\'')
+        # Check if all SWC's exist
+        for path_file in swc_list:
+            if not os.path.isfile(path_file):
+                raise FileNotFoundError('No such file: '+path_file)
         
-        # Check if all SWC's have swc as file types
-        if not checktype(swc_list, 'swc'):
-            print('Warning: One or more SWC\'s do NOT have a \'.swc\' file type')
+        data_path_file = ''
+        coord_path_file = ''
         
-        data_file_list = []
-        
-        if len(args) > 1: # Data arguments are contained in args
+        if len(args) > 1: # Data and coordinate arguments are contained in args
+            # Get data file
             if isinstance(args[1], str):
-                data_file_list = [args[1]]
-            elif isinstance(args[1], tuple):
-                data_file_list = list(args[1])
-            elif isinstance(args[1], list):
-                data_file_list = args[1]
+                data_path_file = args[1]
             else:
-                print('Warning: Unknown input for data file(s)')
-            # Check if all data V's have v as file types
-            if not checktype(data_file_list, 'v'):
-                print('Warning: One or more data V\'s do NOT have a \'.v\' file type')
-            # If data V's are used, check if number is appropriate for SWC's
-            if len(data_file_list)>1 and len(data_file_list) != len(swc_list):
-                print('Warning: Mismatch in number of SWC and data V files')
+                raise TypeError('swc2vtk expected str for data_path_file, got '+str(type(data_path_file)))
+            # Check if data V have .v as file type and exists
+            if not checkfiletype([data_path_file], 'v'):
+                raise TypeError('swc2vtk expected data_path_file to end in \'.v\'')
+            if not os.path.isfile(data_path_file):
+                raise FileNotFoundError('No such file: '+data_path_file)
             
-            if len(args) > 2: # Extra arguments are contained in args
-                print('Warning: Extra arguments recieved beyond SWC and Data files')
+            # Get coordinate file
+            if isinstance(args[2], str):
+                coord_path_file = args[2]
+            else:
+                raise TypeError('swc2vtk expected str for coord_path_file, got '+str(type(coord_path_file)))
+            # Check if coordinate TXT has txt as file type and exists
+            if not checkfiletype([coord_path_file], 'txt'):
+                raise TypeError('swc2vtk expected coord_path_file to end in \'.txt\'')
+            if not os.path.isfile(coord_path_file):
+                raise FileNotFoundError('No such file: '+coord_path_file)
         else: # Less than 2 arguments
             print('No data files. Converting swc''s only.')
                 
@@ -138,85 +206,159 @@ def swc2vtk(*args, **kwargs):
     # Check if keys are defined in kwargs
     # Else set to defaults
     
-    # Path to save VTK file default: '' (results in saving in same folder as swc's)
-    save_path = kwargs.get('save_path', '')
+    # Time data path default: ''
+    time_path_file = kwargs.get('time_path_file', '')
+    if not isinstance(time_path_file, str):
+        raise TypeError('swc2vtk expected str for time_path_file, got '+str(type(time_path_file)))
+    if len(time_path_file)>0 and not checkfiletype([time_path_file], 'txt'):
+        raise TypeError('swc2vtk expected time_path_file to end in \'.txt\'')
+    if len(time_path_file) > 0 and not os.path.isfile(time_path_file):
+        raise FileNotFoundError('No such file: '+time_path_file)
+    
+    # Path to save VTK file default: the path to the first swc
+    save_path = kwargs.get('save_path', os.path.split(swc_list[0])[0])
+    if not isinstance(save_path, str):
+        raise TypeError('swc2vtk expected str for save_path, got '+str(type(save_path)))
     
     # VTK file name default: 'model.vtk'
     vtk_name = kwargs.get('vtk_name', 'model.vtk')
+    if not isinstance(vtk_name, str):
+        raise TypeError('swc2vtk expected str for vtk_name, got '+str(type(vtk_name)))
+    # Check if all coordinate TXT's have txt as file types
+    if not checkfiletype([vtk_name], 'vtk'):
+        raise TypeError('swc2vtk expected vtk_name to end in \'.vtk\'')
+    
+    # Join save path and vtk name for the full path to the new vtk file
+    vtk_path_file = os.path.join(save_path, vtk_name)
     
     # Title of data default: 'vdata'
     datatitle = kwargs.get('datatitle', 'vdata')
+    if not isinstance(datatitle, str):
+        raise TypeError('swc2vtk expected str for datatitle, got '+str(type(datatitle)))
     
     # Data file default delimiter: ' '
     datadelimiter = kwargs.get('datadelimiter', ' ')
+    if not isinstance(datadelimiter, str):
+        raise TypeError('swc2vtk expected str for datadelimiter, got '+str(type(datadelimiter)))
     
     # Coordinate file default delimiter: '	'
     coordsdelimiter = kwargs.get('coordsdelimiter', '	')
+    if not isinstance(coordsdelimiter, str):
+        raise TypeError('swc2vtk expected str for coordsdelimiter, got '+str(type(coordsdelimiter)))
     
     # Maximum frames per vtk default: infinite
-    maxframes = kwargs.get('maxframes', float('Inf'))
+    fpvtk = kwargs.get('fpvtk', float('Inf'))
+    if not (isinstance(fpvtk, int) or fpvtk==float('Inf')):
+        raise TypeError('swc2vtk expected int or Inf for fpvtk, got: type('+str(fpvtk)+')='+str(type(fpvtk)))
 
     # Default # of divisions of modeled spheres: 6
     spherediv = kwargs.get('spherediv', 6)
-    
+    if not isinstance(spherediv, int):
+        raise TypeError('swc2vtk expected int for spherediv, got '+str(type(spherediv)))
+        
     # Default # of divisions of modeled cylinders: 8
     cyldiv = kwargs.get('cyldiv', 8)
-
-    # invertSWC = [x, y, z] [False, False, False]:
-    # Done before scale and shift of swc coordinates
-    invertSWC = kwargs.get('invertSWC', [False, False, False])
+    if not isinstance(cyldiv, int):
+        raise TypeError('swc2vtk expected int for cyldiv, got '+str(type(cyldiv)))
     
-    # scaleSWC = 1.0:
+    # invertSWC = (x, y, z) len(swc_list)*((False, False, False),):
+    # Done before scale and shift of swc coordinates
+    invertSWC = kwargs.get('invertSWC', len(swc_list)*((False, False, False),))
+    if not isinstance(invertSWC, tuple) and not isinstance(invertSWC, list):
+        raise TypeError('swc2vtk expected tuple or list for invertSWC, got '+str(type(invertSWC)))
+    elif not len(invertSWC)==len(swc_list):
+        raise TypeError('swc2vtk expected invertSWC to have same number of elements as swc_list ('+str(len(swc_list))+'), got: '+str(len(invertSWC)))
+    else:
+        for index, element in enumerate(invertSWC):
+            if not isinstance(element, tuple) and not isinstance(element, list):
+                raise TypeError('swc2vtk expected tuple or list for elements of invertSWC, got '+str(type(element))+' at element '+str(index))
+    
+    # scaleSWC = len(swc_list)*(1.0,):
     # scale size (positions and radius) of swc
     # Done after invert and before shift of swc coordinates
-    scaleSWC = kwargs.get('scaleSWC', 1.0)
+    scaleSWC = kwargs.get('scaleSWC', len(swc_list)*(1.0,))
+    if not isinstance(scaleSWC, tuple) and not isinstance(scaleSWC, list):
+        raise TypeError('swc2vtk expected tuple or list for scaleSWC, got '+str(type(scaleSWC)))
+    elif not len(scaleSWC)==len(swc_list):
+        raise TypeError('swc2vtk expected scaleSWC to have same number of elements as swc_list ('+str(len(swc_list))+'), got: '+str(len(scaleSWC)))
+    else:
+        for index, element in enumerate(scaleSWC):
+            if not isinstance(element, float) and not isinstance(element, int):
+                raise TypeError('swc2vtk expected float or int for elements of scaleSWC, got '+str(type(element))+' at element '+str(index))
     
-    # shiftSWC = [x,y,z] [0.0, 0.0, 0.0]:
+    # shiftSWC = (x,y,z) len(swc_list)*((0.0, 0.0, 0.0),):
     # Done after invert and scale of swc coordinates
-    shiftSWC = kwargs.get('shiftSWC', [0.0, 0.0, 0.0])
+    shiftSWC = kwargs.get('shiftSWC', len(swc_list)*((0.0, 0.0, 0.0),))
+    if not isinstance(shiftSWC, tuple) and not isinstance(shiftSWC, list):
+        raise TypeError('swc2vtk expected tuple or list for shiftSWC, got '+str(type(shiftSWC)))
+    elif not len(shiftSWC)==len(swc_list):
+        raise TypeError('swc2vtk expected shiftSWC to have same number of elements as swc_list ('+str(len(swc_list))+'), got: '+str(len(shiftSWC)))
+    else:
+        for index, element in enumerate(shiftSWC):
+            if not isinstance(element, tuple) and not isinstance(element, list):
+                raise TypeError('swc2vtk expected tuple or list for elements of shiftSWC, got '+str(type(element))+' at element '+str(index))
+            else:
+                for subindex, subelement in enumerate(element):
+                    if not isinstance(subelement, float) and not isinstance(subelement, int):
+                        raise TypeError('swc2vtk expected float or int for subelements of lists/tuples in shiftSWC, got '+str(type(subelement))+' at ['+str(index)+']['+str(subindex))
+    
+    # shiftData = (x,y,z) (0.0, 0.0, 0.0):
+    # Done before scale and invert of data coordinates
+    shiftData = kwargs.get('shiftData', (0.0, 0.0, 0.0))
+    if not isinstance(shiftData, tuple) and not isinstance(shiftData, list):
+        raise TypeError('swc2vtk expected tuple or list for shiftData, got '+str(type(shiftData)))
+    else:
+        for index, element in enumerate(shiftData):
+            if not isinstance(element, float) and not isinstance(element, int):
+                raise TypeError('swc2vtk expected float or int for elements of shiftData, got '+str(type(element))+' at element '+str(index))
+    
+    # scaleData = 1.0:
+    # scale size (positions and radius) of swc
+    # Done after shift and before invert of data coordinates
+    scaleData = kwargs.get('scaleData', 1.0)
+    if not isinstance(scaleData, float):
+        if isinstance(scaleData, int):
+            scaleData = float(scaleData)
+        else:
+            raise TypeError('swc2vtk expected float or int for scaleData, got '+str(type(scaleData)))
+
+    # invertData = (x, y, z) (False, False, False):
+    # Done after shift and scale of data coordinates
+    invertData = kwargs.get('invertData', (False, False, False))
+    if not isinstance(invertData, tuple) and not isinstance(invertData, list):
+        raise TypeError('swc2vtk expected tuple or list for invertData, got '+str(type(invertData)))
+    
+    
+    
     
     # Initialize VTK and add SWC file(s)
-    head, tail = os.path.split(swc_list[0])
-    # If no save path was specified use the swc's path
-    if len(save_path) == 0:
-        vtk_path_file = os.path.join(head, vtk_name)
-    else:
-        vtk_path_file = os.path.join(save_path, vtk_name)
     vtk = vtkgen.VtkGenerator()
-    for swc_path_file in swc_list:
-        vtk.add_swc(swc_path_file, shift_x=shiftSWC[0], shift_y=shiftSWC[1], shift_z=shiftSWC[2],
-                                    inv_x=invertSWC[0], inv_y=invertSWC[1], inv_z=invertSWC[2],
-                                    scale_factor=scaleSWC)
-    
+    for idx, swc_path_file in enumerate(swc_list):
+        vtk.add_swc(swc_path_file, shift_x=shiftSWC[idx][0], shift_y=shiftSWC[idx][1], shift_z=shiftSWC[idx][2],
+                                    inv_x=invertSWC[idx][0], inv_y=invertSWC[idx][1], inv_z=invertSWC[idx][2],
+                                    scale_factor=scaleSWC[idx])
     
     # Check if data needs to be added to VTK
-    if len(data_file_list) > 0:
+    if len(data_path_file) > 0:
         # Add all data to VTK and write it to the same folder as the first SWC
-        for data_path_file in data_file_list:
-            vtk.add_timeddatafile(data_path_file)
-        numvtks, minV, maxV = vtk.write_vtk(vtk_path_file, datatitle=datatitle, delimiter=datadelimiter, maxframes=maxframes, sphere_div=spherediv, cyl_div=cyldiv)
-        
-    else: # No data to add, just write the VTK to the same folder as the first SWC
-        numvtks, minV, maxV = vtk.write_vtk(vtk_path_file, sphere_div=sphere_div, cyl_div=cyl_div)
+        vtk.add_datafile(data_path_file, datadelimiter, coord_path_file, coordsdelimiter)
+        if len(time_path_file) > 0:
+            vtk.add_timefile(time_path_file)
+    minV, maxV = vtk.write_vtk(vtk_path_file, datatitle=datatitle, fpvtk=fpvtk, sphere_div=spherediv, cyl_div=cyldiv, shiftData=shiftData, scaleData=scaleData, invertData=invertData)
     
-    # Save split data
-    print('\nNumber of VTK''s: '+str(numvtks))
-    print('Data Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
-    # If no save path was specified use the swc's path
-    if len(save_path) == 0:
-        vtksplitdata_path_file = os.path.join(head, vtk_name[:-4]+'_splitdata.txt')
-    else:
-        vtksplitdata_path_file = os.path.join(save_path, vtk_name[:-4]+'_splitdata.txt')
+    # Save split data, in case vtk file was divided due to fpvtk
+    print('\nData Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
+    vtksplitdata_path_file = os.path.join(save_path, vtk_name[:-4]+'_splitdata.txt')
     with open(vtksplitdata_path_file, 'w') as f:
-        f.write('Number of VTK''s: '+str(numvtks)+'\n')
         f.write('Data Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
-    return [numvtks, minV, maxV]
+        f.write('\nData Title: '+datatitle)
+    return [minV, maxV]
 
 
 
 
 
-def checktype(file_list, file_type):
+def checkfiletype(file_list, file_type):
     # Returns true if all files in file_list are of type file_type
     file_type_check = True
     chars = len(file_type)

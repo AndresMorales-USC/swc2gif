@@ -14,6 +14,7 @@ import math
 import numpy as np
 from tqdm import tqdm
 from tqdm import trange
+from scipy import spatial
 
 from swc2gif.vtkgen.genprimitives import GenPrimitives
 from swc2gif.vtkgen.swc import Swc
@@ -40,8 +41,11 @@ DATASET STRUCTURED_POINTS
         self.swc_list = []
         self.point_list = []
         self.cell_list = []
-        self.datafile_list = []
-        self.timeddatafile_list = []
+        self.datafile = ''
+        self.datadelimiter=' '
+        self.coordsfile = ''
+        self.coordsdelimiter='	'
+        self.timefile = ''
         self.annotation_point_list = []
         self.annotation_cell_list = []
 
@@ -195,7 +199,51 @@ DATASET STRUCTURED_POINTS
         self.swc_list[-1].invert(inv_x, inv_y, inv_z)
         self.swc_list[-1].scaleSize(scale_factor)
         self.swc_list[-1].shift(shift_x, shift_y, shift_z)
+    
+    def mapdata2swcs(self, shiftData=(0.0, 0.0, 0.0), scaleData=1.0, invertData=(False,False,False)):
+        data_path_file = self.datafile
+        datadelimiter = self.datadelimiter
+        coord_path_file = self.coordsfile
+        coordsdelimiter = self.coordsdelimiter
 
+        # Extract data coordinates from coords file
+        tempHead, coords_file = os.path.split(coord_path_file)
+        data_coords = []
+        with open(coord_path_file, 'r') as f:
+            # Read each line of the file as a string, use delimiter to split
+            #     into a list of strings, convert to a list of numbers, and 
+            #     finally append single postion list to list of all positions
+            for line in tqdm(f, desc='Reading coordinate file'):
+                str_list = line.rstrip().split(coordsdelimiter)
+                float_list = []
+                for val in str_list:
+                    try:
+                        float_list.append(float(val))
+                    except:
+                        print('Error: Unable to append single val as float to coord list')
+                        print('Error may occur due to incorrect delimiters')
+                        print('val:')
+                        print(val)
+                float_list[0] = (float_list[0]+shiftData[0])*scaleData*(1-2*invertData[0])
+                float_list[1] = (float_list[1]+shiftData[1])*scaleData*(1-2*invertData[1])
+                float_list[2] = (float_list[2]+shiftData[2])*scaleData*(1-2*invertData[2])
+                data_coords.append(float_list)
+
+        # Generate KDTree
+        tree = spatial.cKDTree(data_coords)
+        
+        # Loop through SWC files for conversion
+        swc_alignment_list = []
+        for swc_element in tqdm(self.swc_list, desc='Aligning Data to All SWC\'s'):
+        # Iterate through each swc compartment and generate reference list
+            compartment_data_idx = []
+            for compartment_element in swc_element.data.values():
+                # Find index of nearest neighbor in coordinates and append to list
+                distance, idx = tree.query(compartment_element['pos'])
+                compartment_data_idx.append(idx)
+            swc_alignment_list.append(compartment_data_idx)
+        return swc_alignment_list
+        
     @staticmethod
     def _point2text(point_list):
         text = 'POINTS %d float\n' % (len(point_list))
@@ -227,179 +275,45 @@ DATASET STRUCTURED_POINTS
             text += str(cell['data'])+'\n'
         
         return text
-
-    @staticmethod
-    def _fixedval2text(cell_list, title='fixedval', fixedval=0.0):
-        text = ''
-        text += 'SCALARS '+title+' float 1\n'
-        text += 'LOOKUP_TABLE default\n'
-        for cell in cell_list:
-            text += str(fixedval)+'\n'
-
-        return text
-
-    @staticmethod
-    def _movingval2text(cell_list, title='movingval', num=100):
-        text = ''
-        text += 'SCALARS '+title+' float ' + str(num) + '\n'
-        text += 'LOOKUP_TABLE default\n'
-
-        for i in range(len(cell_list)):
-            val = i
-            for j in range(num):
-                text += str(val) + ' '
-                val = (val + 1) % 512
-
-            text += '\n'
-
-        return text
-
-    def _file2text(self, datafile_list, title):
-        text = ''
-        text += 'SCALARS ' + title + ' float 1\n'
-        text += 'LOOKUP_TABLE default\n'
         
-        if not (len(datafile_list) == len(self.swc_list)):
-            print('Warning: there is mismatch of data file and swc file (datafile=%d, swcfile=%d)'
-                  % (len(datafile_list), len(self.swc_list)))
-        for datafile_list_index, filename in enumerate(datafile_list):
-            data_num = 0
-            with open(filename, 'r') as f:
-                read_data = f.readlines()
-
-            for i in range(len(read_data)):
-                if read_data[i][0] != '#':
-                    for j in range(self.ncell_per_compartment[data_num]):
-                        text += read_data[i].rstrip() + '\n'
-                    data_num += 1
-
-            if not (data_num == len(self.swc_list[datafile_list_index].data)):
-                print('Warning: there is mismatch of data file lines and swc file lines (index=%d, datafile=%d, swcfile=%d)'
-                      % (datafile_list_index, data_num, len(self.swc_list[datafile_list_index].data)))
-        return text
-        
-    def _timedfile2text(self, filename, datafile_list, title, delimiter, maxframes):
-        
-        # Check system Python is running on (if 'Windows', "len(readline())" will return index of '\n' not the start of the new line)
-        import platform
-        if platform.system()=='Windows':
-            pythonLineCorrection = 1
-        else:
-            pythonLineCorrection = 0
-        
-        # Check if number of data files is 1 or equal to the number of swc's
-        if len(datafile_list) != 1 and len(datafile_list) != len(self.swc_list):
-            print('Warning: there is mismatch of data file and swc file (datafile=%d, swcfile=%d)'
-                  % (len(datafile_list), len(self.swc_list)))
-        
-#        # TO DO: Error Checking!!
-#        # Check if data files have same number of data points as swc files have segments   
-#        # Determine number of time steps # TO DO: repeat for all files and check consistency
-        with open(datafile_list[0], 'r') as f:
-            read_data = f.readlines()
-            timesteps = 0
-            for i in range(len(read_data)):
-                if read_data[i][0] != ' ':
-                    timesteps += 1
-            if timesteps == 0:
-                print('Warning: there is no data in file (timeddatafile=%d)'
-                      % (0))
-        
-        timesteps_digits = len(str(timesteps))
-        
-            
-        # Calculate the number of splits
-        from math import ceil
-        if maxframes > timesteps:
-            maxframes = timesteps
-        num_vtks = int(ceil(timesteps/float(maxframes)))
-        
-        # Generate names of split VTK files
-        vtk_path_list = []
-        if num_vtks > 1:
-            for splitCount in range(num_vtks):
-                vtk_path_list.append(filename[:-4]+'_'+str(splitCount)+filename[-4:])
-        else:
-            vtk_path_list.append(filename)
-        
+    def _writedatafile(self, vtk_write_file, vtk_path_file, swc_alignment_list, title, stepstring_list, stepbounds):
+        data_path_file = self.datafile
+        datadelimiter = self.datadelimiter
+        vf = vtk_write_file
         # Initialize variables for finding the boundary values for future colorbars
         tempMin = float('Inf')
         tempMax = -float('Inf')
         
-        # Loop through each data file, generating a line offset lookup table for hopefully faster searching
-        line_offset_file_list = []
-        for datafilename in tqdm(datafile_list, desc='Generating Data Lookup-Table'):
-            line_offset = []
-            offset = 0
-            with open(datafilename, 'r') as f:
-                for line in f:
-                    line_offset.append(offset)
-                    offset += len(line)+pythonLineCorrection #for python 2.7 need +1 because len() will index of '\n' not the start of the new line
-            line_offset_file_list.append(list(line_offset))
-        
-        # Loop through each VTK path, generating and writing data to the VTK
-        for splitCount, vtk_path in enumerate(tqdm(vtk_path_list, desc='Writing VTK File(s)')):
-            with open(vtk_path, 'w') as vf:
+        # Write data to the VTK
+        with open(data_path_file, 'r') as df:
+            datalines = df.readlines()
+            # Iterate through each time step, writing to this vtk file
+            tempHead, vtk_file = os.path.split(vtk_path_file)
+            for step in trange(stepbounds[0],stepbounds[1], desc='Writing '+vtk_file):
+                # Generate and write header
+                vf.write('SCALARS ' + title + stepstring_list[step] + ' float 1\n')
+                vf.write('LOOKUP_TABLE default\n')
                 
-                # Write header and morphology to this vtk file
-                vf.write(self.header)
-                vf.write(self.point_text)
-                vf.write(self.cell_text)
-                
-                # Calculate time bounds for this vtk file
-                startstep = maxframes*splitCount
-                if splitCount+1 == num_vtks:
-                    stopstep = timesteps
-                else:
-                    stopstep = maxframes*(splitCount+1)
-                
-                # Iterate through each time step, writing to this vtk file
-                tempHead, vtk_file = os.path.split(vtk_path)
-                #for step in trange(startstep,stopstep, desc='Current [Min, Max]: ['+str(tempMin)+', '+str(tempMax)+']; Writing '+vtk_file):
-                for step in trange(startstep,stopstep, desc='Writing '+vtk_file):
-                    
-                    # Add leading 0's for string formatting of time order for filedata name
-                    stepstring = str(step+1)
-                    if len(stepstring) < timesteps_digits:
-                        stepstring = '0'*(timesteps_digits-len(stepstring))+stepstring
-                    # Generate header
-                    vf.write('SCALARS ' + title + stepstring + ' float 1\n')
-                    vf.write('LOOKUP_TABLE default\n')
-                    #text_list.append('SCALARS ' + title + stepstring + ' float 1')
-                    #text_list.append('LOOKUP_TABLE default')
-                    
-                    # Iterate through each data file, reorienting and writing into a single column
-                    for datafile_list_index, datafilename in enumerate(datafile_list):
-                        line = ''
-                        line_location = line_offset_file_list[datafile_list_index][step]
-                        with open(datafilename, 'r') as f:
-                            f.seek(line_location)
-                            line = f.readline()
-                            
-                        compartments_data = line.rstrip().split(delimiter)
-                        for compartment_idx, compartment_val in enumerate(compartments_data):
-                            # Also check for min and max values
-                            try:
-                                tempMin = min(tempMin, float(compartment_val))
-                                tempMax = max(tempMax, float(compartment_val))
-                            except:
-                                print('Data File: '+vtk_file)
-                                print('Step: '+str(step))
-                                print('Line offset: '+str(line_location))
-                                print('Line: '+line)
-                                print('Compartment Idx: '+str(compartment_idx))
-                                print('Compartment Value: '+compartment_val+':')
-                            for j in range(self.ncell_per_compartment_per_swc[datafile_list_index][compartment_idx]):
-                                vf.write(compartment_val+'\n')
-                                #text_list.append(compartment_val)
-        
-        #print('splitCount:')
-        #print(splitCount)
-        #print('Maxframes:')
-        #print(maxframes)
-        #print('Step:')
-        #print(step)
-        return [num_vtks, tempMin, tempMax]
+                data_list = datalines[step].rstrip().split(datadelimiter)
+                # Loop through each swc and its compartments writing the appropiate data for this time step
+                for swc_idx, swc_element in enumerate(self.swc_list):
+                    for compartment_idx in range(len(swc_element.data.values())):
+                        data_idx = swc_alignment_list[swc_idx][compartment_idx]
+                        data_val = data_list[data_idx]
+                        ncells = self.ncell_per_compartment_per_swc[swc_idx][compartment_idx]
+                        vf.write((data_val+'\n')*ncells)
+                        
+                        # Also check for min and max values
+                        #try:
+                        tempMin = min(tempMin, float(data_val))
+                        tempMax = max(tempMax, float(data_val))
+                        #except:
+                        #    print('Data File: '+vtk_file)
+                        #    print('Step: '+str(step))
+                        #    print('Line: '+str(data_list))
+                        #    print('Compartment Idx: '+str(compartment_idx))
+                        #    print('Compartment Value: '+data_val)
+        return [tempMin, tempMax]
 
     def _radius2text(self):
         text = ''
@@ -440,17 +354,23 @@ DATASET STRUCTURED_POINTS
 
         return text
 
-    def add_datafile(self, datafilename):
-        self.datafile_list.append(datafilename)
+    def add_datafile(self, datafilename, datadelimiter, coordsfilename, coordsdelimiter):
+        self.datafile = datafilename
+        self.datadelimiter=datadelimiter
+        self.coordsfile = coordsfilename
+        self.coordsdelimiter=coordsdelimiter
 
     def clear_datafile(self):
-        self.datafile_list = []
+        self.datafile = ''
+        self.datadelimiter=' '
+        self.coordsfile = ''
+        self.coordsdelimiter='	'
     
-    def add_timeddatafile(self, datafilename):
-        self.timeddatafile_list.append(datafilename)
+    def add_timefile(self, timefilename):
+        self.timefile = timefilename
 
-    def clear_timeddatafile(self):
-        self.timeddatafile_list = []
+    def clear_timefile(self):
+        self.timefile = ''
 
     def add_mark(self, pos=(0, 0, 0), size=1.0, data=0.0):
         local_cell_list, local_point_list = \
@@ -494,24 +414,21 @@ DATASET STRUCTURED_POINTS
                                                         record['pos'][0], record['pos'][1], record['pos'][2],
                                                         record['radius'], record['parent']))
 
-    def write_vtk(self, filename, fixedval=None, datatitle='filedata', movingval=False, coloring=False,
-                  diam_ratio=1.0, normalize_diam=False, radius_data=False, type_data=False, delimiter=' ',
-                  maxframes=float('Inf'), sphere_div=6, cyl_div=8):
+    def write_vtk(self, filename, datatitle='filedata', coloring=False,
+                  diam_ratio=1.0, normalize_diam=False, radius_data=False, type_data=False,
+                  maxframes=float('Inf'), sphere_div=6, cyl_div=8,
+                  shiftData=(0.0, 0.0, 0.0), scaleData=1.0, invertData=(False,False,False)):
         """generate and write vtk to file
 
         :param filename: Output VTK filename
-        :param fixedval: add fixed value to CELL_DATA in VTK file
         :param datatitle: change title of CELL_DATA from appended data file
-        :param movingval: add moving value to CELL_DATA in VTK file
         :param coloring: add coloring data to CELL_DATA in VTK file
         :param diam_ratio: multiply diam_ratio to all diameter of SWC compartments
         :param normalize_diam: sqrt(diam) to normalize diameter of SWC compartments
         :param radius_data: add radius information of SWC compartments to CELL_DATA in VTK file
         :param type_data: Output type information of SWC compartments to CELL_DATA in VTK file
         :type filename: text
-        :type fixedval: float
         :type datatitle: text
-        :type movingval: bool
         :type coloring: bool
         :type diam_ratio: float
         :type normalize_diam: bool
@@ -522,34 +439,83 @@ DATASET STRUCTURED_POINTS
         if not self.converted:
             self.convert_swc(diam_ratio=diam_ratio, normalize_diam=normalize_diam, sphere_div=sphere_div, cyl_div=cyl_div)
         
-        if len(self.timeddatafile_list) > 0:
-            num_vtks, minV, maxV = self._timedfile2text(filename, self.timeddatafile_list, datatitle, delimiter, maxframes)
+        # Check if there is data and if it excedes the maximum frames
+        # Also process time data if any
+        num_vtks = 1
+        vtk_path_list = [filename]
+        if len(self.datafile) > 0:
+            # Determine number of time steps (frames) in data file
+            with open(self.datafile, 'r') as f:
+                read_data = f.readlines()
+                timesteps = 0
+                for i in range(len(read_data)):
+                    if read_data[i][0] != ' ':
+                        timesteps += 1
+                if timesteps == 0:
+                    raise TypeError('Warning: there is no data in data file (datafile=%d)'  % (0))
             
-            return [num_vtks, minV, maxV]
-        else:
-            with open(filename, 'w') as file:
+            # Calculate the number of vtk's
+            # populate vtk_path_list with the names of the vtk files to be generated
+            vtk_path_list = []
+            stepbounds_list = []
+            if maxframes < timesteps:
+                num_vtks = int(math.ceil(timesteps/float(maxframes)))
+                vtk_path_list = []
+                for splitCount in range(num_vtks):
+                    vtk_path_list.append(filename[:-4]+'_'+str(splitCount)+filename[-4:])
+                    
+                    # Calculate frame bounds for each split of the vtk file
+                    startstep = maxframes*splitCount
+                    if splitCount+1 == num_vtks:
+                        stopstep = timesteps
+                    else:
+                        stopstep = maxframes*(splitCount+1)
+                    stepbounds_list.append((startstep, stopstep))
+            else: # Only one vtk (no splitting)
+                stepbounds_list.append((0, timesteps))
+        
+            # Generate default stepstring_list (using only frame numbers)
+            stepstring_list = []
+            frame_chars = len(str(timesteps))
+            padding = '_'
+            for n in range(timesteps):
+                stepstring_list.append(padding*(frame_chars-len(str(n))) + str(n) + '/') # Extra zeros used for future formatting
+            # Check if there is time data and add it to stepstring_list
+            if len(self.timefile) > 0: # There is time data to add
+                with open(self.timefile, 'r') as f:
+                    read_data = f.readlines()
+                # Determine max number of characters used in time data for future formatting
+                time_chars = 0
+                for n in range(timesteps):
+                    time_chars = max(time_chars, len(read_data[n]))
+                # Add time data to stepstring_list
+                for n in range(timesteps):
+                    stepstring_list[n] = stepstring_list[n] + padding*(time_chars-len(read_data[n])) + read_data[n]
+        
+        # Write VTK'S
+        minV = float('Inf')
+        maxV = -float('Inf')
+        for splitCount, vtk_path_file in enumerate(tqdm(vtk_path_list, desc='Writing VTK File(s)')):
+            with open(vtk_path_file, 'w') as file:
                 file.write(self.header)
                 file.write(self.point_text)
                 file.write(self.cell_text)
-
-                if fixedval is not None:
-                    file.write(self._fixedval2text(self.cell_list, fixedval=fixedval))
-
-                if movingval:
-                    file.write(self._movingval2text(self.cell_list))
-
-                if len(self.datafile_list) > 0:
-                    file.write(self._file2text(self.datafile_list, datatitle))
-
+                
+                if len(self.datafile) > 0:
+                    swc_alignment_list = self.mapdata2swcs(shiftData, scaleData, invertData)
+                    tempMin, tempMax = self._writedatafile(file, vtk_path_file, swc_alignment_list, datatitle, stepstring_list, stepbounds_list[splitCount])
+                    minV = min(minV, tempMin)
+                    maxV = max(maxV, tempMax)
+                
                 if coloring:
                     file.write(self._coloringbyswc())
-
+                    
                 if radius_data:
                     file.write(self._radius2text())
-
+                    
                 if type_data:
                     file.write(self._type2text())
-            return [1, minV, maxV]
+        return [minV, maxV]
 
     @staticmethod
     def _swc2volume(swc, world, origin=(0.0, 0.0, 0.0), ratio=(1.0, 1.0, 1.0), point_weight=0.2):
@@ -591,7 +557,7 @@ DATASET STRUCTURED_POINTS
         print(self.point_list)
         print(self.cell_list)
         print(self.swc_list)
-        print(self.datafile_list)
+        print(self.datafile)
 
 
 if __name__ == '__main__':
