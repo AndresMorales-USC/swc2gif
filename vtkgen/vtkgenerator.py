@@ -19,6 +19,12 @@ from scipy import spatial
 from swc2gif.vtkgen.genprimitives import GenPrimitives
 from swc2gif.vtkgen.swc import Swc
 
+from multiprocessing import Pool, cpu_count
+
+try:
+    tempworkers = cpu_count()
+except NotImplementedError:
+    tempworkers = 1
 
 class VtkGenerator():
     header_base = '''\
@@ -276,43 +282,39 @@ DATASET STRUCTURED_POINTS
         
         return text
         
-    def _writedatafile(self, vtk_write_file, vtk_path_file, swc_alignment_list, title, stepstring_list, stepbounds):
-        data_path_file = self.datafile
+    def _writedatafile(self, datalines_sublist, vfile, vtk_path_file, swc_alignment_list, title, stepstring_sublist):
         datadelimiter = self.datadelimiter
-        vf = vtk_write_file
         # Initialize variables for finding the boundary values for future colorbars
         tempMin = float('Inf')
         tempMax = -float('Inf')
         
         # Write data to the VTK
-        with open(data_path_file, 'r') as df:
-            datalines = df.readlines()
-            # Iterate through each time step, writing to this vtk file
-            tempHead, vtk_file = os.path.split(vtk_path_file)
-            for step in trange(stepbounds[0],stepbounds[1], desc='Writing '+vtk_file):
-                # Generate and write header
-                vf.write('SCALARS ' + title + stepstring_list[step] + ' float 1\n')
-                vf.write('LOOKUP_TABLE default\n')
-                
-                data_list = datalines[step].rstrip().split(datadelimiter)
-                # Loop through each swc and its compartments writing the appropiate data for this time step
-                for swc_idx, swc_element in enumerate(self.swc_list):
-                    for compartment_idx in range(len(swc_element.data.values())):
-                        data_idx = swc_alignment_list[swc_idx][compartment_idx]
-                        data_val = data_list[data_idx]
-                        ncells = self.ncell_per_compartment_per_swc[swc_idx][compartment_idx]
-                        vf.write((data_val+'\n')*ncells)
-                        
-                        # Also check for min and max values
-                        #try:
-                        tempMin = min(tempMin, float(data_val))
-                        tempMax = max(tempMax, float(data_val))
-                        #except:
-                        #    print('Data File: '+vtk_file)
-                        #    print('Step: '+str(step))
-                        #    print('Line: '+str(data_list))
-                        #    print('Compartment Idx: '+str(compartment_idx))
-                        #    print('Compartment Value: '+data_val)
+        # Iterate through each time step, writing to this vtk file
+        tempHead, vtk_file = os.path.split(vtk_path_file)
+        for step_idx in trange(len(datalines_sublist), desc='Writing '+vtk_file):
+            # Generate and write header
+            vfile.write('SCALARS ' + title + stepstring_sublist[step_idx] + ' float 1\n')
+            vfile.write('LOOKUP_TABLE default\n')
+            
+            data_list = datalines_sublist[step_idx].rstrip().split(datadelimiter)
+            # Loop through each swc and its compartments writing the appropiate data for this time step
+            for swc_idx, swc_element in enumerate(self.swc_list):
+                for compartment_idx in range(len(swc_element.data.values())):
+                    data_idx = swc_alignment_list[swc_idx][compartment_idx]
+                    data_val = data_list[data_idx]
+                    ncells = self.ncell_per_compartment_per_swc[swc_idx][compartment_idx]
+                    vfile.write((data_val+'\n')*ncells)
+                    
+                    # Also check for min and max values
+                    #try:
+                    tempMin = min(tempMin, float(data_val))
+                    tempMax = max(tempMax, float(data_val))
+                    #except:
+                    #    print('Data File: '+vtk_file)
+                    #    print('Step: '+str(step))
+                    #    print('Line: '+str(data_list))
+                    #    print('Compartment Idx: '+str(compartment_idx))
+                    #    print('Compartment Value: '+data_val)
         return [tempMin, tempMax]
 
     def _radius2text(self):
@@ -414,10 +416,34 @@ DATASET STRUCTURED_POINTS
                                                         record['pos'][0], record['pos'][1], record['pos'][2],
                                                         record['radius'], record['parent']))
 
+    def write_vtk_par(self, datalines_sublist, vtk_path_file, swc_alignment_list, datatitle,
+                      stepstring_sublist, coloring, radius_data, type_data):
+        with open(vtk_path_file, 'w') as vfile:
+            vfile.write(self.header)
+            vfile.write(self.point_text)
+            vfile.write(self.cell_text)
+            
+            if len(self.datafile) > 0:
+                valueBounds = self._writedatafile(datalines_sublist, vfile, vtk_path_file, swc_alignment_list,
+                                                  datatitle, stepstring_sublist)
+            
+            if coloring:
+                vfile.write(self._coloringbyswc())
+                
+            if radius_data:
+                vfile.write(self._radius2text())
+                
+            if type_data:
+                vfile.write(self._type2text())
+            
+        return valueBounds
+
+
     def write_vtk(self, filename, datatitle='filedata', coloring=False,
                   diam_ratio=1.0, normalize_diam=False, radius_data=False, type_data=False,
-                  maxframes=float('Inf'), sphere_div=6, cyl_div=8,
-                  shiftData=(0.0, 0.0, 0.0), scaleData=1.0, invertData=(False,False,False)):
+                  fpvtk=float('Inf'), sphere_div=6, cyl_div=8,
+                  shiftData=(0.0, 0.0, 0.0), scaleData=1.0, invertData=(False,False,False),
+                  workers=1):
         """generate and write vtk to file
 
         :param filename: Output VTK filename
@@ -436,6 +462,7 @@ DATASET STRUCTURED_POINTS
         :type type_data: bool
         :return:
         """
+        
         if not self.converted:
             self.convert_swc(diam_ratio=diam_ratio, normalize_diam=normalize_diam, sphere_div=sphere_div, cyl_div=cyl_div)
         
@@ -443,13 +470,15 @@ DATASET STRUCTURED_POINTS
         # Also process time data if any
         num_vtks = 1
         vtk_path_list = [filename]
+        datalines=""
+        timesteps = 0
         if len(self.datafile) > 0:
-            # Determine number of time steps (frames) in data file
-            with open(self.datafile, 'r') as f:
-                read_data = f.readlines()
-                timesteps = 0
-                for i in range(len(read_data)):
-                    if read_data[i][0] != ' ':
+            print("Reading data and calculating time steps/vtk splitting")
+            # Determine number of time steps (frames) in data file (and get datalines)
+            with open(self.datafile, 'r') as df:
+                datalines = df.readlines()
+                for i in range(len(datalines)):
+                    if datalines[i][0] != ' ':
                         timesteps += 1
                 if timesteps == 0:
                     raise TypeError('Warning: there is no data in data file (datafile=%d)'  % (0))
@@ -458,18 +487,18 @@ DATASET STRUCTURED_POINTS
             # populate vtk_path_list with the names of the vtk files to be generated
             vtk_path_list = []
             stepbounds_list = []
-            if maxframes < timesteps:
-                num_vtks = int(math.ceil(timesteps/float(maxframes)))
+            if fpvtk < timesteps:
+                num_vtks = int(math.ceil(timesteps/float(fpvtk)))
                 vtk_path_list = []
                 for splitCount in range(num_vtks):
                     vtk_path_list.append(filename[:-4]+'_'+str(splitCount)+filename[-4:])
                     
                     # Calculate frame bounds for each split of the vtk file
-                    startstep = maxframes*splitCount
+                    startstep = fpvtk*splitCount
                     if splitCount+1 == num_vtks:
                         stopstep = timesteps
                     else:
-                        stopstep = maxframes*(splitCount+1)
+                        stopstep = fpvtk*(splitCount+1)
                     stepbounds_list.append((startstep, stopstep))
             else: # Only one vtk (no splitting)
                 stepbounds_list.append((0, timesteps))
@@ -482,40 +511,58 @@ DATASET STRUCTURED_POINTS
                 stepstring_list.append(padding*(frame_chars-len(str(n))) + str(n) + '/') # Extra zeros used for future formatting
             # Check if there is time data and add it to stepstring_list
             if len(self.timefile) > 0: # There is time data to add
-                with open(self.timefile, 'r') as f:
-                    read_data = f.readlines()
+                with open(self.timefile, 'r') as tf:
+                    timedata = tf.readlines()
                 # Determine max number of characters used in time data for future formatting
                 time_chars = 0
                 for n in range(timesteps):
-                    time_chars = max(time_chars, len(read_data[n]))
+                    time_chars = max(time_chars, len(timedata[n]))
                 # Add time data to stepstring_list
                 for n in range(timesteps):
-                    stepstring_list[n] = stepstring_list[n] + padding*(time_chars-len(read_data[n])) + read_data[n]
+                    stepstring_list[n] = stepstring_list[n] + padding*(time_chars-len(timedata[n])) + timedata[n]
+        
+            # Get data alignment
+            swc_alignment_list = self.mapdata2swcs(shiftData, scaleData, invertData)
         
         # Write VTK'S
-        minV = float('Inf')
-        maxV = -float('Inf')
-        for splitCount, vtk_path_file in enumerate(tqdm(vtk_path_list, desc='Writing VTK File(s)')):
-            with open(vtk_path_file, 'w') as file:
-                file.write(self.header)
-                file.write(self.point_text)
-                file.write(self.cell_text)
-                
-                if len(self.datafile) > 0:
-                    swc_alignment_list = self.mapdata2swcs(shiftData, scaleData, invertData)
-                    tempMin, tempMax = self._writedatafile(file, vtk_path_file, swc_alignment_list, datatitle, stepstring_list, stepbounds_list[splitCount])
-                    minV = min(minV, tempMin)
-                    maxV = max(maxV, tempMax)
-                
-                if coloring:
-                    file.write(self._coloringbyswc())
-                    
-                if radius_data:
-                    file.write(self._radius2text())
-                    
-                if type_data:
-                    file.write(self._type2text())
-        return [minV, maxV]
+        pool = Pool(processes=workers) #ex = futures.ThreadPoolExecutor(max_workers=4) #pool = mp.Pool(4) #mp.cpu_count())
+        print('Writing VTK File(s)')
+        valueBoundsList = pool.starmap(self.write_vtk_par,
+                                       [(datalines[stepbounds_list[splitCount][0]:stepbounds_list[splitCount][1]],
+                                       vtk_path_list[splitCount], swc_alignment_list, datatitle,
+                                       stepstring_list[stepbounds_list[splitCount][0]:stepbounds_list[splitCount][1]],
+                                       coloring, radius_data, type_data)
+                                       for splitCount in range(num_vtks)]) #tqdm(vtk_path_list, desc='Writing VTK File(s)')
+        pool.close()
+        print('Finished Writing VTK File(s)')
+        minList = [vbounds[0] for vbounds in valueBoundsList]
+        maxList = [vbounds[1] for vbounds in valueBoundsList]
+        minV = min(minList)
+        maxV = max(maxList)
+        # minV = float('Inf')
+        # maxV = -float('Inf')
+        # for splitCount, vtk_path_file in enumerate(tqdm(vtk_path_list, desc='Writing VTK File(s)')):
+           # with open(vtk_path_file, 'w') as file:
+               # file.write(self.header)
+               # file.write(self.point_text)
+               # file.write(self.cell_text)
+               
+               # if len(self.datafile) > 0:
+                   # swc_alignment_list = self.mapdata2swcs(shiftData, scaleData, invertData)
+                   # b0, b1 = stepbounds_list[splitCount]
+                   # tempMin, tempMax = self._writedatafile(datalines[b0, b1], file, vtk_path_file, swc_alignment_list, datatitle, stepstring_list[b0, b1])
+                   # minV = min(minV, tempMin)
+                   # maxV = max(maxV, tempMax)
+               
+               # if coloring:
+                   # file.write(self._coloringbyswc())
+                   
+               # if radius_data:
+                   # file.write(self._radius2text())
+                   
+               # if type_data:
+                   # file.write(self._type2text())
+        return [minV, maxV, timesteps]
 
     @staticmethod
     def _swc2volume(swc, world, origin=(0.0, 0.0, 0.0), ratio=(1.0, 1.0, 1.0), point_weight=0.2):
@@ -561,7 +608,8 @@ DATASET STRUCTURED_POINTS
 
 
 if __name__ == '__main__':
-
+    freeze_support()
+    
     def test_swc_movie(stoptime=100):
         filename_base = 'swc_cuboid%d.vtk'
         vtkgen = VtkGenerator()

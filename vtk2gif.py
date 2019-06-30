@@ -108,6 +108,10 @@ fps: A positive integer for the frames per second used by the gif.
 
 bgcolor: Background color of animation is a tuple of rgb values.
     Defaults to black (0.0,0.0,0.0)
+    
+workers: A positive interger dictating the quantity of workers for
+    parallel processing. Defaults to the max number of cpu's, or, if
+    parallel processing isn't implemented, to 1.
 
 Prerequisite Packages: tqdm, imageio, mayavi
 pip install mayavi
@@ -126,6 +130,153 @@ from mayavi.modules.surface import Surface
 from tqdm import tqdm
 from numpy import array
 import imageio
+
+from multiprocessing import Pool, cpu_count
+
+
+# Load VTK
+def load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True):
+    # Clear current scene of possible vtk
+    engine.scenes[0].children[0:1] = []
+    # Add file data to engine
+    #print('\nOpening: '+temp_vtk_path_file)
+    src = engine.open(temp_vtk_path_file)
+    
+    if visible:
+        # Add surface module to make data visible
+        engine.add_filter(Surface(), src)
+    
+    # Populate list of indices of the scalars, within the vtk, that have datatitle as part of its name
+    datalist = []
+    for dataID, dataname in enumerate(src._cell_scalars_list):
+        if datatitle in dataname:
+            datalist.append(dataID)
+    
+    if useCBar:
+        # Make colorbar visible, oriented, scaled, and positioned
+        module_manager = src.children[0]
+        module_manager.scalar_lut_manager.show_scalar_bar = True
+        module_manager.scalar_lut_manager.scalar_bar_representation.orientation = 0
+        #module_manager.scalar_lut_manager.scalar_bar.orientation = 'horizontal'
+        module_manager.scalar_lut_manager.scalar_bar_representation.position2 = array([0.8, 0.1]) #size
+        module_manager.scalar_lut_manager.scalar_bar_representation.position = array([0.1, 0.87]) #position of bottom-left-most point
+        module_manager.scalar_lut_manager.scalar_bar.maximum_number_of_colors = 21 #limits color range for consistent gif colors
+        #[0.1, 0.01] for bottom alignment
+    
+    return src, datalist
+
+# Render animation frames in single engine
+def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk, vtk_path_file_list, 
+                    startpositionoffset, startradiusoffset, startelevation, startazimuth,
+                    vtk_name, save_path, fps, stepposition, stepradius, stepelevation, stepazimuth,
+                    datatitle, time_list, usertimeChars, minV, maxV):
+            # Create new scene with set window size (which defines the gif size)
+            scn = mlab.figure(size=size, bgcolor=bgcolor) #bgcolor must be tuple (0.0,0.0,0.0) - (1.0,1.0,1.0)
+            # Enable view of x,y,z-axes labels
+            scn.scene.show_axes = showaxes
+            # Set view to +z axes
+            scn.scene.z_plus_view()
+            # Set clipping range
+            #scn.scene.camera.clipping_range = [100,100]
+            # Get engine for adding file data
+            engine = mlab.get_engine()
+            
+            # GIF creation: Loop through the list of sublists (each sublist contains the frames for a single gif)
+            # Initialize before looping
+            vtknum = int(gif_frame_sublist[0]/fpvtk)
+            temp_vtk_path_file = vtk_path_file_list[vtknum]
+            
+            # Load vtk
+            src, datalist = load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True)
+            module_manager = src.children[0]
+            
+            # Get the auto set view angle data
+            start_focal_point = scn.scene.camera.focal_point
+            cam_pos = scn.scene.camera.position
+            rel_cam_pos = cam_pos-start_focal_point
+            start_rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
+        
+            # Set focal point, camera radius, and angles to start values
+            focal_point = start_focal_point + array(startpositionoffset)
+            rel_radius = start_rel_radius + startradiusoffset
+            elevation = startelevation
+            azimuth = startazimuth
+            new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
+            new_cam_pos = new_rel_cam_pos+focal_point
+            scn.scene.camera.focal_point = focal_point
+            scn.scene.camera.position = new_cam_pos
+            
+            gif_im_sublist = []
+            # Loop through each frame in sublist
+            for frameIDX in tqdm(gif_frame_sublist, desc='Generating GIF: '+gif_file):
+                # Frame 0000 is at index 0 of vtk 0
+                # Frame 0500, when fpvtk=500, is at index 0 of vtk 1
+                vtkIDX = frameIDX%fpvtk
+                
+                # If the vtk has changed, load the new vtk
+                temp_vtknum = int(frameIDX/fpvtk)
+                if vtknum != temp_vtknum:
+                    vtknum = temp_vtknum
+                    temp_vtk_path_file = vtk_path_file_list[vtknum]
+                    
+                    # Load vtk
+                    src, datalist = load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True)
+                    module_manager = src.children[0]
+                
+                
+                # Change data to next selected frame
+                src._cell_scalars_name = src._cell_scalars_list[datalist[vtkIDX]]
+                
+                # Set camera position and angle
+                new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation), rel_radius*math.cos(elevation)*math.cos(azimuth)])
+                new_cam_pos = new_rel_cam_pos+focal_point
+                scn.scene.camera.focal_point = focal_point
+                scn.scene.camera.position = new_cam_pos
+                scn.scene.renderer.reset_camera_clipping_range()
+                #scn.scene.camera.clipping_range = [100,100]
+                #scn.scene.camera.compute_view_plane_normal()
+                #scn.scene.render()
+                
+                # Step camera position and angle values for future frames
+                focal_point += array(stepposition)
+                rel_radius += stepradius
+                if elevation+stepelevation >= math.radians(-90) and elevation+stepelevation <= math.radians(90):
+                    elevation += stepelevation
+                azimuth += stepazimuth
+                
+                # Update frame for viewing
+                src.update_data()
+                
+                # Enforce colorbar title and limits
+                padding = '_'
+                framenum_padded, timepoint_padded = os.path.split(src._cell_scalars_name[len(datatitle):])
+                framenum = framenum_padded.lstrip(padding)
+                timepoint = timepoint_padded.lstrip(padding)
+                if len(time_list)>0: # Use time provided by user
+                    usertime = str(time_list[int(framenum)])
+                    # Add padding for consistent title formatting/spacing
+                    timeStepString = 'Time(ms): '+' '*(usertimeChars-len(usertime))+usertime
+                else: # Use frame/time in vtk
+                    if len(timepoint)>0: # Time data exists in vtk, use it
+                        timeStepString = 'Time(ms): '+' '*(len(timepoint_padded)-len(timepoint))+timepoint
+                    else: # Only frame number in vtk
+                        timeStepString = 'Frame: '+' '*(len(framenum_padded)-len(framenum))+framenum
+                module_manager.scalar_lut_manager.scalar_bar.title = 'Voltage (mV) at '+timeStepString
+                module_manager.scalar_lut_manager.data_range = array([minV, maxV])
+                
+                # Append the figure to the gif animation
+                f = mlab.gcf(engine=engine)
+                f.scene._lift()
+                gif_im_sublist.append(mlab.screenshot())
+                    
+            # Clear current vtk from scene
+            #engine.scenes[0].children[0:1] = []
+        
+            # Close figure
+            mlab.close()
+            return gif_im_sublist
+
+
 
 def vtk2gif(*arg, **kwargs):
     # Check if vtk file path was passed through arg
@@ -188,6 +339,10 @@ def vtk2gif(*arg, **kwargs):
     time_list = kwargs.get('time_list', [])
     if not (isinstance(time_list, tuple) or isinstance(time_list, list)):
         raise TypeError('vtk2gif expected tuple or list for time_list, got '+str(type(time_list)))
+    # Get max character length of timepoints
+    usertimeChars = 0
+    for t in time_list:
+        usertimeChars = max(usertimeChars, len(str(t)))
     
     # Maximum frames per vtk default: 0 #Results in reading number of frames in 1st vtk
     fpvtk = kwargs.get('fpvtk', 0)
@@ -279,74 +434,6 @@ def vtk2gif(*arg, **kwargs):
             if not (isinstance(v, int) or isinstance(v, float)):
                 raise TypeError('vtk2gif expected int or float for elements of bgcolor, got '+str(type(v))+' for element '+i)
     
-    
-    
-    
-    # Load VTK
-    def _load_vtk(*load_args, **kwargs):
-        temp_vtk_path_file, engine = load_args
-        visible = kwargs.get('visible', True)
-        useCBar = kwargs.get('useCBar', True)
-        # Clear current scene of possible vtk
-        engine.scenes[0].children[0:1] = []
-        # Add file data to engine
-        #print('\nOpening: '+temp_vtk_path_file)
-        src = engine.open(temp_vtk_path_file)
-        
-        if visible:
-            # Add surface module to make data visible
-            engine.add_filter(Surface(), src)
-        
-        # Populate list of indices of the scalars, within the vtk, that have datatitle as part of its name
-        for dataID, dataname in enumerate(src._cell_scalars_list):
-            if datatitle in dataname:
-                datalist.append(dataID)
-        
-        if useCBar:
-            # Make colorbar visible, oriented, scaled, and positioned
-            module_manager = src.children[0]
-            module_manager.scalar_lut_manager.show_scalar_bar = True
-            module_manager.scalar_lut_manager.scalar_bar_representation.orientation = 0
-            #module_manager.scalar_lut_manager.scalar_bar.orientation = 'horizontal'
-            module_manager.scalar_lut_manager.scalar_bar_representation.position2 = array([0.8, 0.1]) #size
-            module_manager.scalar_lut_manager.scalar_bar_representation.position = array([0.1, 0.87]) #position of bottom-left-most point
-            module_manager.scalar_lut_manager.scalar_bar.maximum_number_of_colors = 21 #limits color range for consistent gif colors
-            #[0.1, 0.01] for bottom alignment
-        
-        return src
-    
-    
-    # Create new scene with set window size (which defines the gif size)
-    scn = mlab.figure(size=size, bgcolor=bgcolor) #bgcolor must be tuple (0.0,0.0,0.0) - (1.0,1.0,1.0)
-    # Enable view of x,y,z-axes labels
-    scn.scene.show_axes = showaxes
-    # Set view to +z axes
-    scn.scene.z_plus_view()
-    # Set clipping range
-    #scn.scene.camera.clipping_range = [100,100]
-    # Get engine for adding file data
-    engine = mlab.get_engine()
-    
-    
-    
-    
-    # Find fpvtk by user input (already set >0) or counting the number of frames in the 1st vtk of vtk_path_file_list
-    if fpvtk == 0:
-        # Load vtk
-        datalist = []
-        src = _load_vtk(vtk_path_file_list[0], engine, visible=False, useCBar=False)
-        fpvtk = len(datalist)
-    # Find total frames in all vtk(s)
-    if totalframes == 0:
-        if numvtks == 1:
-            totalframes = fpvtk
-        elif numvtks > 1:
-            # Load vtk
-            datalist = []
-            src = _load_vtk(vtk_path_file_list[-1], engine, visible=False, useCBar=False)
-            fplastvtk = len(datalist)
-            totalframes = fpvtk*(numvtks-1)+fplastvtk
-    
     # Parse and error check selection of frames
     select_frame_list = []
     # Should be a list
@@ -367,157 +454,144 @@ def vtk2gif(*arg, **kwargs):
             else: # Element is an int and is appended as sublist to select_frame_list
                 select_frame_list.append([element])
     
-    # If no frames are selected, convert each vtk into a gif
+    # Number of workers for parallel processing is default to the max number of cpu's
+    # (unless parallel isn't implemented then it defaults to 1)
+    try:
+        tempworkers = cpu_count()
+    except NotImplementedError:
+        tempworkers = 1
+    workers = kwargs.get('workers', tempworkers)
+    if not isinstance(workers, int):
+        raise TypeError('vtk2gif expected an int for workers, got '+str(type(workers)))
+    else:
+        if not workers>=1:
+            raise TypeError('vtk2gif expected a positive int for workers, got '+str(workers))
+
+
+
+
+    
+    if fpvtk == 0 or totalframes == 0 or len(colorBounds) == 0:
+        # Create new scene with set window size (which defines the gif size)
+        scn = mlab.figure(size=size, bgcolor=bgcolor) #bgcolor must be tuple (0.0,0.0,0.0) - (1.0,1.0,1.0)
+        # Enable view of x,y,z-axes labels
+        scn.scene.show_axes = showaxes
+        # Set view to +z axes
+        scn.scene.z_plus_view()
+        # Set clipping range
+        #scn.scene.camera.clipping_range = [100,100]
+        # Get engine for adding file data
+        engine = mlab.get_engine()
+        
+        # Find fpvtk by user input (already set >0) or counting the number of frames in the 1st vtk of vtk_path_file_list
+        if fpvtk == 0:
+            print('Finding frames per vtk')
+            # Load vtk
+            src, datalist = load_vtk(vtk_path_file_list[0], engine, datatitle, visible=False, useCBar=False)
+            fpvtk = len(datalist)
+        
+        # Find total frames in all vtk(s) if not already set by user
+        if totalframes == 0:
+            print('Finding total frames in vtk set')
+            if numvtks == 1:
+                totalframes = fpvtk
+            elif numvtks > 1:
+                # Load vtk
+                src, datalist = load_vtk(vtk_path_file_list[-1], engine, datatitle, visible=False, useCBar=False)
+                fplastvtk = len(datalist)
+                totalframes = fpvtk*(numvtks-1)+fplastvtk
+        
+        # Set minimum and maximum values of the colorbar
+        if len(colorBounds) == 0:
+            print('Finding minimum and maximum data values in vtk set')
+            # Find global extremes of data for colorbar bounds
+            # (otherwise the bounds would be determined by the local min/max
+            # values and change with each frame)
+            
+            # Initialize min/max
+            minV = float('Inf')
+            maxV = -float('Inf')
+            
+            # Loop through each vtk file seaching for data extremes
+            for temp_vtk_path_file in tqdm(vtk_path_file_list, desc='Finding data minimum and maximum'):
+                # Load vtk
+                src, datalist = load_vtk(temp_vtk_path_file, engine, datatitle, visible=False, useCBar=False)
+                module_manager = src.children[0]
+                
+                # Get global min/max values of this vtk
+                # Loop through all frames
+                for vdataID in tqdm(datalist, desc='Finding local min/max of '+os.path.split(temp_vtk_path_file)[1]):
+                    # Change data to next step
+                    src._cell_scalars_name = src._cell_scalars_list[vdataID]
+                    # Update frame
+                    src.update_data()
+                    # Get min/max values of this frame
+                    tempMin = module_manager.scalar_lut_manager.data_range[0]
+                    tempMax = module_manager.scalar_lut_manager.data_range[1]
+                    if tempMin < minV:
+                        minV = tempMin
+                    if tempMax > maxV:
+                        maxV = tempMax
+            print('\nData Extremes:')
+            print([minV, maxV])
+        
+        # Close figure
+        mlab.close()
+    
+        
+    # If no frames are selected, select frames such that each vtk is converted into a gif
     if len(select_frame_list) == 0:
         for vtknum in range(numvtks-1):
-            select_frame_list.append(list(range(vtknum*fpvtk,(vtknum+1)*fpvtk-1)))
+            select_frame_list.append(list(range(vtknum*fpvtk,(vtknum+1)*fpvtk)))
         select_frame_list.append(list(range((numvtks-1)*fpvtk, totalframes)))
     
     # Check if values are within the bounds of the vtk(s)
     if min(min(select_frame_list)) < 0 or max(max(select_frame_list)) > totalframes:
         raise TypeError('vtk2gif expected selectframes to be within the bounds of vtk(''s)')
-    
-    # Set minimum and maximum values of the colorbar
+        
     if len(colorBounds) > 0:
         minV, maxV = colorBounds
-    else:
-        # Find global extremes of data for colorbar bounds
-        # (otherwise the bounds would be determined by the local min/max
-        # values and change with each frame)
+    
+    
+    
+    
+    pool = Pool(processes=workers)
+    # Loop through frame sets each to be converted to a single gif
+    for gif_frame_list in tqdm(select_frame_list, desc='Generating GIF(s)'):
+        # Split up selected frames (of singular gif) among multiple workers
+        gif_frame_sublists = [gif_frame_list[i:i + workers] for i in range(0, len(gif_frame_list), workers)]
+        # Establish starting positions for each worker
+        startpositionoffset_list = []
+        startradiusoffset_list = []
+        startelevation_list = []
+        startazimuth_list = []
+        steps = 0
+        for w_idx in range(workers):
+            startpositionoffset_list.append(tuple([startpositionoffset[i]+stepposition[i]*steps for i in range(3)]))
+            startradiusoffset_list.append(startradiusoffset+stepradius*steps)
+            startelevation_list.append(startelevation+stepelevation*steps)
+            startazimuth_list.append(startazimuth+stepazimuth*steps)
+            steps = steps + len(gif_frame_sublists[w_idx])
         
-        # Initialize min/max
-        minV = float('Inf')
-        maxV = -float('Inf')
-        
-        # Loop through each vtk file seaching for data extremes
-        for temp_vtk_path_file in tqdm(vtk_path_file_list, desc='Finding data minimum and maximum'):
-            # Load vtk
-            datalist = []
-            src = _load_vtk(temp_vtk_path_file, engine, visible=False, useCBar=False)
-            module_manager = src.children[0]
-            
-            # Get global min/max values of this vtk
-            # Loop through all frames
-            for vdataID in tqdm(datalist, desc='Finding local min/max of '+os.path.split(temp_vtk_path_file)[1]):
-                # Change data to next step
-                src._cell_scalars_name = src._cell_scalars_list[vdataID]
-                # Update frame
-                src.update_data()
-                # Get min/max values of this frame
-                tempMin = module_manager.scalar_lut_manager.data_range[0]
-                tempMax = module_manager.scalar_lut_manager.data_range[1]
-                if tempMin < minV:
-                    minV = tempMin
-                if tempMax > maxV:
-                    maxV = tempMax
-        print('\nData Extremes:')
-        print([minV, maxV])
-    
-    # Get max character length of timepoints
-    usertimeChars = 0
-    for t in time_list:
-        usertimeChars = max(usertimeChars, len(str(t)))
-    
-    
-    
-    
-    # GIF creation: Loop through the list of sublists (each sublist contains the frames for a single gif)
-    # Initialize before looping
-    vtknum = int(select_frame_list[0][0]/fpvtk)
-    temp_vtk_path_file = vtk_path_file_list[vtknum]
-    
-    # Load vtk
-    datalist = []
-    src = _load_vtk(temp_vtk_path_file, engine, visible=True, useCBar=True)
-    module_manager = src.children[0]
-    
-    # Get the auto set view angle data
-    start_focal_point = scn.scene.camera.focal_point
-    cam_pos = scn.scene.camera.position
-    rel_cam_pos = cam_pos-start_focal_point
-    start_rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
-    
-    # Loop through lists of sublists
-    for gif_list in tqdm(select_frame_list, desc='Generating GIF(s)'):
-        # Set focal point, camera radius, and angles to start values
-        focal_point = start_focal_point + array(startpositionoffset)
-        rel_radius = start_rel_radius + startradiusoffset
-        elevation = startelevation
-        azimuth = startazimuth
-        new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
-        new_cam_pos = new_rel_cam_pos+focal_point
-        scn.scene.camera.focal_point = focal_point
-        scn.scene.camera.position = new_cam_pos
-        
-        # Generate gif name and start exporting frames
-        gif_file = vtk_name[:-4]+' - frames '+str(gif_list[0])+'-'+str(gif_list[-1])+'.gif'
+        # Generate gif name
+        gif_file = vtk_name[:-4]+' - frames '+str(gif_frame_list[0])+'-'+str(gif_frame_list[-1])+'.gif'
         gif_path_file = os.path.join(save_path, gif_file)
-        with imageio.get_writer(gif_path_file, mode='I', fps=fps) as writer:
-            # Loop through each frame in sublist
-            for frameIDX in tqdm(gif_list, desc='Generating GIF: '+gif_file):
-                # Frame 0000 is at index 0 of vtk 0
-                # Frame 0500, when fpvtk=500, is at index 0 of vtk 1
-                vtkIDX = frameIDX%fpvtk
-                
-                # If the vtk has changed, load the new vtk
-                temp_vtknum = int(frameIDX/fpvtk)
-                if vtknum != temp_vtknum:
-                    vtknum = temp_vtknum
-                    temp_vtk_path_file = vtk_path_file_list[vtknum]
-                    
-                    # Load vtk
-                    datalist = []
-                    src = _load_vtk(temp_vtk_path_file, engine, visible=True, useCBar=True)
-                    module_manager = src.children[0]
-                
-                
-                # Change data to next selected frame
-                src._cell_scalars_name = src._cell_scalars_list[datalist[vtkIDX]]
-                
-                # Set camera position and angle
-                new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation), rel_radius*math.cos(elevation)*math.cos(azimuth)])
-                new_cam_pos = new_rel_cam_pos+focal_point
-                scn.scene.camera.focal_point = focal_point
-                scn.scene.camera.position = new_cam_pos
-                scn.scene.renderer.reset_camera_clipping_range()
-                #scn.scene.camera.clipping_range = [100,100]
-                #scn.scene.camera.compute_view_plane_normal()
-                #scn.scene.render()
-                
-                # Step camera position and angle values for future frames
-                focal_point += array(stepposition)
-                rel_radius += stepradius
-                if elevation+stepelevation >= math.radians(-90) and elevation+stepelevation <= math.radians(90):
-                    elevation += stepelevation
-                azimuth += stepazimuth
-                
-                # Update frame for viewing
-                src.update_data()
-                
-                # Enforce colorbar title and limits
-                padding = '_'
-                framenum_padded, timepoint_padded = os.path.split(src._cell_scalars_name[len(datatitle):])
-                framenum = framenum_padded.lstrip(padding)
-                timepoint = timepoint_padded.lstrip(padding)
-                if len(time_list)>0: # Use time provided by user
-                    usertime = str(time_list[int(framenum)])
-                    # Add padding for consistent title formatting/spacing
-                    timeStepString = 'Time(ms): '+' '*(usertimeChars-len(usertime))+usertime
-                else: # Use frame/time in vtk
-                    if len(timepoint)>0: # Time data exists in vtk, use it
-                        timeStepString = 'Time(ms): '+' '*(len(timepoint_padded)-len(timepoint))+timepoint
-                    else: # Only frame number in vtk
-                        timeStepString = 'Frame: '+' '*(len(framenum_padded)-len(framenum))+framenum
-                module_manager.scalar_lut_manager.scalar_bar.title = 'Voltage (mV) at '+timeStepString
-                module_manager.scalar_lut_manager.data_range = array([minV, maxV])
-                
-                # Append the figure to the gif animation
-                f = mlab.gcf()
-                f.scene._lift()
-                writer.append_data(mlab.screenshot())
-                
-        # Clear current vtk from scene
-        #engine.scenes[0].children[0:1] = []
-    
-    # Close figure
-    mlab.close()
+        
+        # Get images from workers
+        gif_im_list = pool.starmap(render_gif_para,
+                                [(size, bgcolor, showaxes, gif_frame_sublists[w_idx], gif_file, fpvtk, vtk_path_file_list, 
+                                startpositionoffset_list[w_idx], startradiusoffset_list[w_idx],
+                                startelevation_list[w_idx], startazimuth_list[w_idx],
+                                vtk_name, save_path, fps, stepposition, stepradius, stepelevation, stepazimuth,
+                                datatitle, time_list, usertimeChars, minV, maxV)
+                                for w_idx in range(workers)])
+        
+        
+        # Export frames
+        imageio.mimwrite(gif_path_file, [image for sublist in gif_im_list for image in sublist], fps=fps, subrectangles=False) #, mode='I'
+        
+        # with imageio.get_writer(gif_path_file, mode='I', fps=fps) as writer:
+            # for gif_im_list in gif_im_listlist:
+                # for im in gif_im_list:
+                    # writer.append_data(im)                 
+        

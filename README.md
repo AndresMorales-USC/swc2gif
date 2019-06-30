@@ -36,7 +36,7 @@ swc2vtk(swc_path_file(s), [data_path_file, coord_path_file],
     datatitle='vdata', datadelimiter=' ', coordsdelimiter='	',
     fpvtk=float('Inf'), spherediv=6, cyldiv=8,
     invertSWC=((False, False, False),), scaleSWC=(1.0,),
-    shiftSWC=((0.0,0.0,0.0),)
+    shiftSWC=((0.0,0.0,0.0),), workers=cpu_count()
     ])
 
 Takes swc morphology file(s) and converts them into vtk model files.
@@ -50,7 +50,7 @@ vtk2gif(vtk_path_file,
     showaxes=True, colorBounds=(), time_list=[], selectframes=[],
     fpvtk=0, totalframes=0, angleradians=False,
     startelevation=0, startazimuth=0, stepelevation=0, stepazimuth=0,
-    bgcolor=(0.0,0.0,0.0)
+    bgcolor=(0.0,0.0,0.0), workers=cpu_count()
     ])
 
 Takes VTK file(s) containing vdata, where each vdata## is a different

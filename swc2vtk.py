@@ -139,7 +139,10 @@ shiftSWC: A tuple/list, equal in length to the number of swc files,
             or: [(0.0, 0.0, 0.0),
                 (1.0, 50.0, -10.0)]
     )
-
+    
+workers: A positive interger dictating the quantity of workers for
+    parallel processing. Defaults to the max number of cpu's, or, if
+    parallel processing isn't implemented, to 1.
 
 Prerequisite Packages: tqdm, scipy
 pip install tqdm scipy
@@ -149,6 +152,7 @@ pip install tqdm scipy
 import swc2gif.vtkgen as vtkgen
 import os
 from tqdm import tqdm
+from multiprocessing import cpu_count
 
 def swc2vtk(*args, **kwargs):
     # Check if swc, data file, and coordinate file paths were passed through args
@@ -328,13 +332,25 @@ def swc2vtk(*args, **kwargs):
     if not isinstance(invertData, tuple) and not isinstance(invertData, list):
         raise TypeError('swc2vtk expected tuple or list for invertData, got '+str(type(invertData)))
     
+    # Number of workers for parallel processing is default to the max number of cpu's
+    # (unless parallel isn't implemented then it defaults to 1)
+    try:
+        tempworkers = cpu_count()
+    except NotImplementedError:
+        tempworkers = 1
+    workers = kwargs.get('workers', tempworkers)
+    if not isinstance(workers, int):
+        raise TypeError('vtk2gif expected an int for workers, got '+str(type(workers)))
+    else:
+        if not workers>=1:
+            raise TypeError('vtk2gif expected a positive int for workers, got '+str(workers))
     
     
     
     # Initialize VTK and add SWC file(s)
     vtk = vtkgen.VtkGenerator()
     for idx, swc_path_file in enumerate(swc_list):
-        vtk.add_swc(swc_path_file, shift_x=shiftSWC[idx][0], shift_y=shiftSWC[idx][1], shift_z=shiftSWC[idx][2],
+        vtk.add_swc(swc_list[idx], shift_x=shiftSWC[idx][0], shift_y=shiftSWC[idx][1], shift_z=shiftSWC[idx][2],
                                     inv_x=invertSWC[idx][0], inv_y=invertSWC[idx][1], inv_z=invertSWC[idx][2],
                                     scale_factor=scaleSWC[idx])
     
@@ -344,7 +360,9 @@ def swc2vtk(*args, **kwargs):
         vtk.add_datafile(data_path_file, datadelimiter, coord_path_file, coordsdelimiter)
         if len(time_path_file) > 0:
             vtk.add_timefile(time_path_file)
-    minV, maxV = vtk.write_vtk(vtk_path_file, datatitle=datatitle, fpvtk=fpvtk, sphere_div=spherediv, cyl_div=cyldiv, shiftData=shiftData, scaleData=scaleData, invertData=invertData)
+    minV, maxV, totalframes = vtk.write_vtk(vtk_path_file, datatitle=datatitle, fpvtk=fpvtk,
+                                            sphere_div=spherediv, cyl_div=cyldiv, shiftData=shiftData,
+                                            scaleData=scaleData, invertData=invertData, workers=workers)
     
     # Save split data, in case vtk file was divided due to fpvtk
     print('\nData Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
@@ -352,7 +370,9 @@ def swc2vtk(*args, **kwargs):
     with open(vtksplitdata_path_file, 'w') as f:
         f.write('Data Bounds [Min, Max]: ['+str(minV)+', '+str(maxV)+']')
         f.write('\nData Title: '+datatitle)
-    return [minV, maxV]
+        f.write('\nFrames per VTK: '+str(fpvtk))
+        f.write('\nTotal Frames of Data: '+str(totalframes))
+    return [minV, maxV, totalframes]
 
 
 
