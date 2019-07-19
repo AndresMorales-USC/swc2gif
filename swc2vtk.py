@@ -4,7 +4,7 @@ Created on 2018/05/22
 
 @author: Andres Morales
 
-swc2vtk(swc_path_file(s), [data_path_file, coord_path_file],
+minV, maxV, totalframes = swc2vtk(swc_path_file(s), [data_path_file, coord_path_file],
     [
     time_path_file='', save_path=swc_path, vtk_name='model.vtk',
     datatitle='vdata', datadelimiter=' ', coordsdelimiter='	',

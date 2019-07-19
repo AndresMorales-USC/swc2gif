@@ -58,7 +58,7 @@ selectframes: A list containing integers and/or sublists of integers.
     element of selectframes is a different gif. If not given (or set
     to an empty list), each vtk split ('model_6.vtk') will be converted
     into a separate gif. Defaults to an empty list.
-    (Example: [3, [1,2,3], 4, 5, 10, [9,12,17]])
+    (Example: [3, [1,2,3], 4, [5], 10, [9,12,17]])
 
 fpvtk: An int of the maximum number of frames per vtk. Setting
     value to greater than zero prevents vtk2gif from having to find the
@@ -83,8 +83,8 @@ stepposition: A list/tuple of 3 floats that is converted into a numpy
     for each frame of animation.
     Default is (0.0,0.0,0.0).
 
-stepradius: A float for the change in distance of camera and focal point
-    each frame of animation.
+stepradius: A float for the change in distance between camera and focal
+    point each frame of animation.
 
 angleradians: A boolean for whether angles provided are in radians.
     Defaults to False.
@@ -113,9 +113,32 @@ workers: A positive interger dictating the quantity of workers for
     parallel processing. Defaults to the max number of cpu's, or, if
     parallel processing isn't implemented, to 1.
 
+elecX, elecY, elecZ: Are tuples/lists, each containing 2 numbers for
+    the ends of a needle/hook electrode [start, electrode target]
+    Defaults to (0,0) for each (resulting in no electrode)
+
+elecradius: A float for the radius of the electrode cylinder.
+    Defaults to 1
+
+eleccolor: A tuple of rgb vlaues for the color of the electrode.
+    Defaults to white (1.0,1.0,1.0)
+
+electype: A string setting the type of electrode. Can be either
+    'needle' or 'hook'.
+    Defaults to 'needle'
+
+elec_hookradius: A float for the radius of the bend in the cylinder
+    of a hook electrode. The bottom of the bend is the electrode
+    target.
+    Defaults to 2.5
+
+elec_hooktheta: A float for the degrees of rotation of the hook
+    electrode around the axis of the start point and electrode target.
+    Defaults to 0
+
 Prerequisite Packages: tqdm, imageio, mayavi
 pip install mayavi
-pip install --upgrade numpy tqdm imageio
+pip install --upgrade numpy tqdm imageio scipy
 
 """
 
@@ -128,16 +151,35 @@ from mayavi import mlab
 from mayavi.sources.vtk_file_reader import VTKFileReader
 from mayavi.modules.surface import Surface
 from tqdm import tqdm
-from numpy import array
+import numpy as np
+from scipy.optimize import root
 import imageio
 
 from multiprocessing import Pool, cpu_count
 
 
+def _hook_equations(b, v,r,theta,a):
+    amag = np.sqrt(a.dot(a))
+    return ( v.dot(b) , a.dot(b)-r*amag*math.cos(theta) , b.dot(b)-r**2 )
+
+def _getPerpVec(v, r, theta):
+    if v[0] == 0 and v[2] == 0:
+        if v[1] == 0:
+            raise TypeError('getPerpVec expected numpy array with 3 elements where not all of them equal 0, got '+str(v))
+        else:
+            k = np.array([1,0,0])
+    else:
+        k = np.array([0,1,0])
+    m = k.dot(v)/v.dot(v)
+    a = k-m*v
+    
+    soln = root(_hook_equations, a, args=(v,r,theta,a))
+    return soln.x
+
 # Load VTK
 def load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True):
-    # Clear current scene of possible vtk
-    engine.scenes[0].children[0:1] = []
+    # Clear current scene of possible vtk and potential electrode
+    engine.scenes[0].children[0:2] = []
     # Add file data to engine
     #print('\nOpening: '+temp_vtk_path_file)
     src = engine.open(temp_vtk_path_file)
@@ -158,8 +200,8 @@ def load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True):
         module_manager.scalar_lut_manager.show_scalar_bar = True
         module_manager.scalar_lut_manager.scalar_bar_representation.orientation = 0
         #module_manager.scalar_lut_manager.scalar_bar.orientation = 'horizontal'
-        module_manager.scalar_lut_manager.scalar_bar_representation.position2 = array([0.8, 0.1]) #size
-        module_manager.scalar_lut_manager.scalar_bar_representation.position = array([0.1, 0.87]) #position of bottom-left-most point
+        module_manager.scalar_lut_manager.scalar_bar_representation.position2 = np.array([0.8, 0.1]) #size
+        module_manager.scalar_lut_manager.scalar_bar_representation.position = np.array([0.1, 0.87]) #position of bottom-left-most point
         module_manager.scalar_lut_manager.scalar_bar.maximum_number_of_colors = 21 #limits color range for consistent gif colors
         #[0.1, 0.01] for bottom alignment
     
@@ -169,7 +211,8 @@ def load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True):
 def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk, vtk_path_file_list, 
                     startpositionoffset, startradiusoffset, startelevation, startazimuth,
                     vtk_name, save_path, fps, stepposition, stepradius, stepelevation, stepazimuth,
-                    datatitle, time_list, usertimeChars, minV, maxV):
+                    datatitle, time_list, usertimeChars, minV, maxV, useElec, elecX, elecY, elecZ,
+                    elecradius, eleccolor, electype, elec_hookradius, elec_hooktheta):
             # Create new scene with set window size (which defines the gif size)
             scn = mlab.figure(size=size, bgcolor=bgcolor) #bgcolor must be tuple (0.0,0.0,0.0) - (1.0,1.0,1.0)
             # Enable view of x,y,z-axes labels
@@ -190,6 +233,30 @@ def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk,
             src, datalist = load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True)
             module_manager = src.children[0]
             
+            # Load electrode if any
+            if useElec:
+                ex=np.array(elecX)
+                ey=np.array(elecY)
+                ez=np.array(elecZ)
+                
+                if electype == 'needle':
+                    # Render needle electrode
+                    l = mlab.plot3d(ex, ey, ez, tube_radius=elecradius, color=eleccolor)
+                elif electype == 'hook':
+                    # Calculate extra points of hook
+                    v0 = np.array([ex[0], ey[0], ez[0]])
+                    v1 = np.array([ex[1], ey[1], ez[1]])
+                    
+                    dv = v1-v0
+                    m = np.sqrt(dv.dot(dv))
+                    b = _getPerpVec(dv, elec_hookradius, elec_hooktheta)
+                    h = [v0, v0+dv*(1-elec_hookradius/m)-b, v1, v0+dv*(1-elec_hookradius/m)+b]
+
+                    xh = [a[0] for a in h]
+                    yh = [a[1] for a in h]
+                    zh = [a[2] for a in h]
+                    lh = mlab.plot3d(xh, yh, zh, tube_radius=elecradius, color=eleccolor)
+            
             # Get the auto set view angle data
             start_focal_point = scn.scene.camera.focal_point
             cam_pos = scn.scene.camera.position
@@ -197,11 +264,11 @@ def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk,
             start_rel_radius = (rel_cam_pos[0]**2+rel_cam_pos[1]**2+rel_cam_pos[2]**2)**0.5
         
             # Set focal point, camera radius, and angles to start values
-            focal_point = start_focal_point + array(startpositionoffset)
+            focal_point = start_focal_point + np.array(startpositionoffset)
             rel_radius = start_rel_radius + startradiusoffset
             elevation = startelevation
             azimuth = startazimuth
-            new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
+            new_rel_cam_pos = np.array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation),rel_radius*math.cos(elevation)*math.cos(azimuth)])
             new_cam_pos = new_rel_cam_pos+focal_point
             scn.scene.camera.focal_point = focal_point
             scn.scene.camera.position = new_cam_pos
@@ -222,13 +289,36 @@ def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk,
                     # Load vtk
                     src, datalist = load_vtk(temp_vtk_path_file, engine, datatitle, visible=True, useCBar=True)
                     module_manager = src.children[0]
-                
+                    
+                    # Load electrode if any
+                    if useElec:
+                        ex=np.array(elecX)
+                        ey=np.array(elecY)
+                        ez=np.array(elecZ)
+                        
+                        if electype == 'needle':
+                            # Render needle electrode
+                            l = mlab.plot3d(ex, ey, ez, tube_radius=elecradius, color=eleccolor)
+                        elif electype == 'hook':
+                            # Calculate extra points of hook
+                            v0 = np.array([ex[0], ey[0], ez[0]])
+                            v1 = np.array([ex[1], ey[1], ez[1]])
+                            
+                            dv = v1-v0
+                            m = np.sqrt(dv.dot(dv))
+                            b = _getPerpVec(dv, elec_hookradius, elec_hooktheta)
+                            h = [v0, v0+dv*(1-elec_hookradius/m)-b, v1, v0+dv*(1-elec_hookradius/m)+b]
+
+                            xh = [a[0] for a in h]
+                            yh = [a[1] for a in h]
+                            zh = [a[2] for a in h]
+                            lh = mlab.plot3d(xh, yh, zh, tube_radius=elecradius, color=eleccolor)
                 
                 # Change data to next selected frame
                 src._cell_scalars_name = src._cell_scalars_list[datalist[vtkIDX]]
                 
                 # Set camera position and angle
-                new_rel_cam_pos = array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation), rel_radius*math.cos(elevation)*math.cos(azimuth)])
+                new_rel_cam_pos = np.array([rel_radius*math.cos(elevation)*math.sin(azimuth), rel_radius*math.sin(elevation), rel_radius*math.cos(elevation)*math.cos(azimuth)])
                 new_cam_pos = new_rel_cam_pos+focal_point
                 scn.scene.camera.focal_point = focal_point
                 scn.scene.camera.position = new_cam_pos
@@ -238,7 +328,7 @@ def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk,
                 #scn.scene.render()
                 
                 # Step camera position and angle values for future frames
-                focal_point += array(stepposition)
+                focal_point += np.array(stepposition)
                 rel_radius += stepradius
                 if elevation+stepelevation >= math.radians(-90) and elevation+stepelevation <= math.radians(90):
                     elevation += stepelevation
@@ -262,7 +352,7 @@ def render_gif_para(size, bgcolor, showaxes, gif_frame_sublist, gif_file, fpvtk,
                     else: # Only frame number in vtk
                         timeStepString = 'Frame: '+' '*(len(framenum_padded)-len(framenum))+framenum
                 module_manager.scalar_lut_manager.scalar_bar.title = 'Voltage (mV) at '+timeStepString
-                module_manager.scalar_lut_manager.data_range = array([minV, maxV])
+                module_manager.scalar_lut_manager.data_range = np.array([minV, maxV])
                 
                 # Append the figure to the gif animation
                 f = mlab.gcf(engine=engine)
@@ -329,10 +419,7 @@ def vtk2gif(*arg, **kwargs):
         raise TypeError('vtk2gif expected bool for showaxes, got '+str(type(showaxes)))
     
     # Default frames to be turned into gif's: []
-    # can be a list of integers, a list of sublists of integers, or a 
-    #     string of a file path
-    # file format: each line is numbers separated by spaces
-    #     indicating the frames of a single gif
+    # can be a list of integers or a list of sublists of integers
     selectframes=kwargs.get('selectframes', [])
     
     # Time data default: [] #Results in using frame/time info from vtk file
@@ -467,10 +554,78 @@ def vtk2gif(*arg, **kwargs):
         if not workers>=1:
             raise TypeError('vtk2gif expected a positive int for workers, got '+str(workers))
 
-
-
-
+    # Get electrode coordinates
+    useElec = False
+    elecX = kwargs.get('elecX', (0,0))
+    elecY = kwargs.get('elecY', (0,0))
+    elecZ = kwargs.get('elecZ', (0,0))
     
+    if not (isinstance(elecX, list) or isinstance(elecX, tuple)):
+        raise TypeError('vtk2gif expected a list/tuple for elecX, got '+str(type(elecX)))
+    if not (isinstance(elecY, list) or isinstance(elecY, tuple)):
+        raise TypeError('vtk2gif expected a list/tuple for elecY, got '+str(type(elecY)))
+    if not (isinstance(elecZ, list) or isinstance(elecZ, tuple)):
+        raise TypeError('vtk2gif expected a list/tuple for elecZ, got '+str(type(elecZ)))
+    
+    if len(elecX) != 2:
+        raise TypeError('vtk2gif expected a list/tuple of length 2 for elecX, got '+str(len(elecX)))
+    if len(elecY) != 2:
+        raise TypeError('vtk2gif expected a list/tuple of length 2 for elecY, got '+str(len(elecY)))
+    if len(elecZ) != 2:
+        raise TypeError('vtk2gif expected a list/tuple of length 2 for elecZ, got '+str(len(elecZ)))
+    
+    for temp in elecX:
+        if not (isinstance(temp, int) or isinstance(temp, float)):
+            raise TypeError('vtk2gif expected ints or floats to be contained in elecX, got '+str(type(temp)))
+    for temp in elecY:
+        if not (isinstance(temp, int) or isinstance(temp, float)):
+            raise TypeError('vtk2gif expected ints or floats to be contained in elecY, got '+str(type(temp)))
+    for temp in elecZ:
+        if not (isinstance(temp, int) or isinstance(temp, float)):
+            raise TypeError('vtk2gif expected ints or floats to be contained in elecZ, got '+str(type(temp)))
+
+    # If we are rendering an electrode get other values and check if hook
+    if sum(elecX)+sum(elecY)+sum(elecZ) != 0:
+        useElec = True
+    
+    # Electrode radius
+    elecradius = kwargs.get('elecradius', 1)
+    if not (isinstance(elecradius, int) or isinstance(elecradius, float)):
+        raise TypeError('vtk2gif expected int or float for elecradius, got '+str(type(elecradius)))
+    elif not(elecradius > 0):
+        raise TypeError('vtk2gif expected int or float greater than zero for elecradius, got '+str(elecradius))
+    
+    # Electrode color
+    eleccolor = kwargs.get('eleccolor', (1.0,1.0,1.0))
+    if not (isinstance(eleccolor, tuple) or isinstance(eleccolor, list)):
+        raise TypeError('vtk2gif expected tuple or list for eleccolor, got '+str(type(eleccolor)))
+    elif not (len(eleccolor) == 3):
+        raise TypeError('vtk2gif expected tuple or list with 3 elements for eleccolor, got '+str(len(eleccolor))+' elements')
+    else:
+        for i, v in enumerate(eleccolor):
+            if not (isinstance(v, int) or isinstance(v, float)):
+                raise TypeError('vtk2gif expected int or float for elements of eleccolor, got '+str(type(v))+' for element '+i)
+    
+    # Get electrode type
+    electype = kwargs.get('electype', 'needle')
+    
+    # Hook bend radius
+    elec_hookradius = kwargs.get('elec_hookradius', 2.5)
+    if not (isinstance(elec_hookradius, int) or isinstance(elec_hookradius, float)):
+        raise TypeError('vtk2gif expected int or float for elec_hookradius, got '+str(type(elec_hookradius)))
+    elif not(elec_hookradius > 0):
+        raise TypeError('vtk2gif expected int or float greater than zero for elec_hookradius, got '+str(elec_hookradius))
+    
+    # Hook rotation angle about it's own axis
+    if angleradians:
+        elec_hooktheta = kwargs.get('elec_hooktheta', 0)
+    else:
+        elec_hooktheta = math.radians(kwargs.get('elec_hooktheta', 0))
+    if not (isinstance(elec_hooktheta, int) or isinstance(elec_hooktheta, float)):
+        raise TypeError('vtk2gif expected int or float for elec_hooktheta, got '+str(type(elec_hooktheta)))
+
+
+    # If information about the vtk files are not provided by the user, calculate those values
     if fpvtk == 0 or totalframes == 0 or len(colorBounds) == 0:
         # Create new scene with set window size (which defines the gif size)
         scn = mlab.figure(size=size, bgcolor=bgcolor) #bgcolor must be tuple (0.0,0.0,0.0) - (1.0,1.0,1.0)
@@ -545,7 +700,7 @@ def vtk2gif(*arg, **kwargs):
             select_frame_list.append(list(range(vtknum*fpvtk,(vtknum+1)*fpvtk)))
         select_frame_list.append(list(range((numvtks-1)*fpvtk, totalframes)))
     
-    # Check if values are within the bounds of the vtk(s)
+    # Check if selected frame values are within the bounds of the vtk(s)
     if min(min(select_frame_list)) < 0 or max(max(select_frame_list)) > totalframes:
         raise TypeError('vtk2gif expected selectframes to be within the bounds of vtk(''s)')
         
@@ -583,9 +738,9 @@ def vtk2gif(*arg, **kwargs):
                                 startpositionoffset_list[w_idx], startradiusoffset_list[w_idx],
                                 startelevation_list[w_idx], startazimuth_list[w_idx],
                                 vtk_name, save_path, fps, stepposition, stepradius, stepelevation, stepazimuth,
-                                datatitle, time_list, usertimeChars, minV, maxV)
+                                datatitle, time_list, usertimeChars, minV, maxV, useElec, elecX, elecY, elecZ, elecradius, eleccolor,
+                                electype, elec_hookradius, elec_hooktheta)
                                 for w_idx in range(workers)])
-        
         
         # Export frames
         imageio.mimwrite(gif_path_file, [image for sublist in gif_im_list for image in sublist], fps=fps, subrectangles=False) #, mode='I'
