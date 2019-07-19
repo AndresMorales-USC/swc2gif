@@ -10,7 +10,9 @@ vtk2gif(vtk_path_file,
     showaxes=True, colorBounds=(), time_list=[], selectframes=[],
     fpvtk=0, totalframes=0, angleradians=False,
     startelevation=0, startazimuth=0, stepelevation=0, stepazimuth=0,
-    bgcolor=(0.0,0.0,0.0)
+    bgcolor=(0.0,0.0,0.0), elecX=(0,0), elecY=(0,0), elecZ=(0,0),
+    elecradius=1, eleccolor=(1.0,1.0,1.0), electype='needle',
+    elec_hookradius=2.5, elec_hooktheta=0
     ])
 
 Takes VTK file(s) containing vdata, where each vdata## is a different

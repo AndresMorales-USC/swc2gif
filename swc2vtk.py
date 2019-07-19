@@ -9,6 +9,7 @@ minV, maxV, totalframes = swc2vtk(swc_path_file(s), [data_path_file, coord_path_
     time_path_file='', save_path=swc_path, vtk_name='model.vtk',
     datatitle='vdata', datadelimiter=' ', coordsdelimiter='	',
     fpvtk=float('Inf'), spherediv=6, cyldiv=8,
+    shiftData=(0.0,0.0,0.0), scaleData=1.0, invertData=(False, False, False),
     invertSWC=((False, False, False),), scaleSWC=(1.0,),
     shiftSWC=((0.0,0.0,0.0),)
     ])
