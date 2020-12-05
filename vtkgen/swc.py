@@ -55,14 +55,15 @@ class Swc():
                             self.scale[2] = float(record[3])
 
                 elif len(line) > 1:
-                    record = line.strip().split(' ')
-
+                    record = list(filter(None, line.strip().split(' ')))
+                    
                     one_data = {'id': int(record[0]),
                                 'type': int(record[1]),
                                 'pos': [float(record[2]) * self.scale[0], float(record[3]) * self.scale[1],
                                         float(record[4]) * self.scale[2]],
                                 'radius': float(record[5]),
                                 'parent': int(record[6])}
+                        
                     self.data[int(record[0])] = one_data
 
     def shift(self, x=0.0, y=0.0, z=0.0):

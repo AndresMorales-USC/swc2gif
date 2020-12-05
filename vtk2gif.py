@@ -716,7 +716,7 @@ def vtk2gif(*arg, **kwargs):
     # Loop through frame sets each to be converted to a single gif
     for gif_frame_list in tqdm(select_frame_list, desc='Generating GIF(s)'):
         # Split up selected frames (of singular gif) among multiple workers
-        gif_frame_sublists = [gif_frame_list[i:i + workers] for i in range(0, len(gif_frame_list), workers)]
+        gif_frame_sublists = np.array_split(gif_frame_list, workers)
         # Establish starting positions for each worker
         startpositionoffset_list = []
         startradiusoffset_list = []
